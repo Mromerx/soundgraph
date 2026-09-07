@@ -1,0 +1,63 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# --- Virtualenv ---
+.venv/
+venv/
+env/
+
+# --- Environment ---
+.env
+.env.local
+.env.*.local
+
+# --- Django ---
+*.sqlite3
+db.sqlite3
+staticfiles/
+media/
+static/
+
+# --- Tests / coverage / tools ---
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.pyre/
+.ruff_cache/
+
+# --- Logs ---
+*.log
+logs/
+
+# --- Node / frontend ---
+node_modules/
+dist/
+frontend/node_modules/
+frontend/dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.vite/
+
+# --- Build outputs ---
+build/
+*.tsbuildinfo
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# --- Celery ---
+celerybeat-schedule
+celerybeat.pid
