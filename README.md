@@ -42,23 +42,47 @@ Tag data comes exclusively from the Last.fm API.
 
 - Python 3.10+
 - Node.js 18+ and npm
-- **PostgreSQL running.** The database is queried on every request, so the service must be up **before** running `migrate`, `runserver`, or the tests. Verify with `pg_isready -h localhost -p 5432`; on Linux start it with `sudo systemctl start postgresql` (or `sudo service postgresql start`).
+- **PostgreSQL running.** The database is queried on every request, so the service must be up **before** running `migrate`, `runserver`, or the tests. Verify with `pg_isready -h localhost -p 5432`. If the service is down, start it on:
+
+  - Linux: `sudo systemctl start postgresql` (or `sudo service postgresql start`)
+  - Windows: open the **Services** manager and start `postgresql-x64-<version>`
 
 ### Backend
+
+**Linux**
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# 1. Create the database and user (adjust to match your .env):
-#    sudo -u postgres psql -c "CREATE USER soundgraph WITH PASSWORD 'soundgraph';"
-#    sudo -u postgres psql -c "CREATE DATABASE soundgraph OWNER soundgraph;"
+# Create the database and user (adjust to match your .env):
+sudo -u postgres psql -c "CREATE USER soundgraph WITH PASSWORD 'soundgraph';"
+sudo -u postgres psql -c "CREATE DATABASE soundgraph OWNER soundgraph;"
 
-# 2. Configure environment
+# Configure environment
 cp .env.example .env   # then edit LASTFM_API_KEY and DB_* to match your setup
 
-# 3. Run it
+# Run it
+python manage.py migrate
+python manage.py runserver   # API at http://localhost:8000/api/
+```
+
+**Windows** (PowerShell)
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+
+# Create the database and user (adjust to match your .env):
+psql -U postgres -c "CREATE USER soundgraph WITH PASSWORD 'soundgraph';"
+psql -U postgres -c "CREATE DATABASE soundgraph OWNER soundgraph;"
+
+# Configure environment
+Copy-Item .env.example .env   # then edit LASTFM_API_KEY and DB_* to match your setup
+
+# Run it
 python manage.py migrate
 python manage.py runserver   # API at http://localhost:8000/api/
 ```

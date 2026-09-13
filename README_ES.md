@@ -42,23 +42,47 @@ Los tags provienen exclusivamente de la API de Last.fm.
 
 - Python 3.10+
 - Node.js 18+ y npm
-- **PostgreSQL corriendo.** La base se consulta en cada request, así que el servicio tiene que estar levantado **antes** de correr `migrate`, `runserver` o los tests. Verifica con `pg_isready -h localhost -p 5432`; en Linux levántalo con `sudo systemctl start postgresql` (o `sudo service postgresql start`).
+- **PostgreSQL corriendo.** La base se consulta en cada request, así que el servicio tiene que estar levantado **antes** de correr `migrate`, `runserver` o los tests. Verifica con `pg_isready -h localhost -p 5432`. Si el servicio está caído, levántalo en:
+
+  - Linux: `sudo systemctl start postgresql` (o `sudo service postgresql start`)
+  - Windows: abre el administrador de **Servicios** y arranca `postgresql-x64-<versión>`
 
 ### Backend
+
+**Linux**
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# 1. Crea la base de datos y el usuario (ajústalo a tu .env):
-#    sudo -u postgres psql -c "CREATE USER soundgraph WITH PASSWORD 'soundgraph';"
-#    sudo -u postgres psql -c "CREATE DATABASE soundgraph OWNER soundgraph;"
+# Crea la base de datos y el usuario (ajústalo a tu .env):
+sudo -u postgres psql -c "CREATE USER soundgraph WITH PASSWORD 'soundgraph';"
+sudo -u postgres psql -c "CREATE DATABASE soundgraph OWNER soundgraph;"
 
-# 2. Configura el entorno
+# Configura el entorno
 cp .env.example .env   # después edita LASTFM_API_KEY y DB_* según tu setup
 
-# 3. Ejecútalo
+# Ejecútalo
+python manage.py migrate
+python manage.py runserver   # API en http://localhost:8000/api/
+```
+
+**Windows** (PowerShell)
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+
+# Crea la base de datos y el usuario (ajústalo a tu .env):
+psql -U postgres -c "CREATE USER soundgraph WITH PASSWORD 'soundgraph';"
+psql -U postgres -c "CREATE DATABASE soundgraph OWNER soundgraph;"
+
+# Configura el entorno
+Copy-Item .env.example .env   # después edita LASTFM_API_KEY y DB_* según tu setup
+
+# Ejecútalo
 python manage.py migrate
 python manage.py runserver   # API en http://localhost:8000/api/
 ```
