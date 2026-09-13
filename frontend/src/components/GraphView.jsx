@@ -51,13 +51,13 @@ function nodeKindLabel(kind) {
   }
 }
 
-function branchForce(accessor, strength) {
+function branchForce(accessor, strength, settle = 1) {
   let nodes = [];
   function force(alpha) {
     for (const node of nodes) {
       if (!node) continue;
       const [tx, ty] = accessor(node);
-      const k = strength(node);
+      const k = strength(node) * settle;
       node.vx += (tx - node.x) * k * alpha;
       node.vy += (ty - node.y) * k * alpha;
     }
@@ -71,7 +71,7 @@ function branchForce(accessor, strength) {
   return force;
 }
 
-function collideForce(getRadius) {
+function collideForce(getRadius, settle = 1) {
   let nodes = [];
   function force(alpha) {
     const n = nodes.length;
@@ -96,7 +96,7 @@ function collideForce(getRadius) {
         }
         const d = Math.sqrt(d2) || 1;
         const overlap = ((minDist - d) / d) * 0.4;
-        const k = alpha;
+        const k = alpha * settle;
         a.vx -= dx * overlap * k;
         a.vy -= dy * overlap * k;
         b.vx += dx * overlap * k;
@@ -113,7 +113,7 @@ function collideForce(getRadius) {
   return force;
 }
 
-function hierarchicalSeparate({ influence = 70 } = {}) {
+function hierarchicalSeparate({ influence = 70, settle = 1 } = {}) {
   // Repulsión jerárquica entre pelotas: la colisión dura (no se tocan) la hace
   // ``collideForce``; esta fuerza ordena por afinidad repeliendo distinto:
   //   - misma semilla y mismo nivel -> se repelen POCO (viven juntas),
@@ -145,7 +145,7 @@ function hierarchicalSeparate({ influence = 70 } = {}) {
         }
         const d = Math.sqrt(dx * dx + dy * dy) || 1;
         if (d >= influence) continue;
-        const k = ((influence - d) / influence) * strengthOf(a, b) * alpha;
+        const k = ((influence - d) / influence) * strengthOf(a, b) * alpha * settle;
         const nx = dx / d;
         const ny = dy / d;
         a.vx -= nx * k;
@@ -582,25 +582,30 @@ export default function GraphView({ recommendations, seeds, connection }) {
     graphRef.current.d3ReheatSimulation();
   }, [graph, paused]);
 
-  // Mientras la búsqueda sigue corriendo la simulación nunca queda quieta más
-  // de ~1.5s: un grafo congelado 3s mientras aún se explora parece que se
-  // detuvo. El reheat suave además ayuda a que la fuerza de colisión siga
-  // resolviendo solapamientos (ninguna pelota pegada a otra).
+  // La simulación siempre se mantiene cálida (nunca se congela del todo: los
+  // nodos siguen siendo arrastrables y la red fluye). La lib hace
+  // d3ReheatSimulation() = alpha 1, así que la energía extra no fue el
+  // problema; las fuerzas de colisión/repulsión sí: por eso tras terminar se
+  // atenúan con el factor ``settle`` y los nodos ya no se repelen ni rebotan,
+  // solo fluyen suavemente en su posición final. Al pausar sí se congela.
   useEffect(() => {
-    if (!discovering) return undefined;
+    if (paused) return undefined;
     const id = window.setInterval(() => {
       const fg = graphRef.current;
-      if (fg) fg.d3ReheatSimulation(0.5);
+      if (fg) fg.d3ReheatSimulation();
     }, 1500);
     return () => window.clearInterval(id);
-  }, [discovering]);
+  }, [paused]);
 
   useEffect(() => {
     const fg = graphRef.current;
     if (!fg) return;
-    fg.d3Force('charge')?.strength(-12);
+    // La carga (repulsión eléctrica) también provoca el "rebote" constante al
+    // recalentizar; una vez terminada la búsqueda se baja a lo mínimo para que
+    // los nodos se queden en su lugar y solo fluyan.
+    fg.d3Force('charge')?.strength(discovering ? -12 : -3);
     fg.d3Force('link')?.distance(26);
-  }, []);
+  }, [discovering]);
 
   useEffect(() => {
     const fg = graphRef.current;
@@ -614,29 +619,32 @@ export default function GraphView({ recommendations, seeds, connection }) {
       if (node.kind === 'seed') return 0.3;
       return 0.06;
     };
+    const settle = discovering ? 1 : 0.06;
     const f = branchForce(
       (node) => {
         if (node.fx !== undefined || node.fy !== undefined) return [node.x, node.y];
         const a = anchorFor(node);
         return [a.x, a.y];
       },
-      strengthFor
+      strengthFor,
+      settle
     );
     fg.d3Force('branch', f);
     f.setNodes(graph.nodes);
 
     const coll = collideForce(
-      (node) => (node.kind === 'bridge' ? 14 : node.kind === 'seed' ? 13 : 11)
+      (node) => (node.kind === 'bridge' ? 14 : node.kind === 'seed' ? 13 : 11),
+      settle
     );
     fg.d3Force('collide', coll);
     coll.setNodes(graph.nodes);
 
-    const sep = hierarchicalSeparate({ influence: 70 });
+    const sep = hierarchicalSeparate({ influence: 70, settle });
     fg.d3Force('hsep', sep);
     sep.setNodes(graph.nodes);
 
     if (!paused) fg.d3ReheatSimulation();
-  }, [graph, branchAnchors, paused]);
+  }, [graph, branchAnchors, paused, discovering]);
 
   useEffect(() => {
     // Resetear el estado de vista solo cuando cambia la BÚSQUEDA (search_id)
@@ -872,8 +880,19 @@ export default function GraphView({ recommendations, seeds, connection }) {
       fg.d3AlphaTarget(0);
       fg.resetCountdown?.();
     }
-    st.node.fx = undefined;
-    st.node.fy = undefined;
+    // Mientras se explora la red sigue viva: al soltar el nodo se libera y
+    // las fuerzas lo recuperan. Cuando la búsqueda ya terminó, en cambio, se
+    // PINNEA en el punto donde quedó (fx/fy fijos): la fuerza de rama lo deja
+    // quieto donde lo dejó el usuario y el grafo se asienta una sola vez.
+    // Sin esto, al terminar, la rama lo arrastra de vuelta a su ancla y el
+    // grafo parece "no soltar" el nodo.
+    if (discovering) {
+      st.node.fx = undefined;
+      st.node.fy = undefined;
+    } else {
+      st.node.fx = st.node.x;
+      st.node.fy = st.node.y;
+    }
     if (selectOnClick && !st.moved && graph.nodes.includes(st.node)) setSelected(st.node);
   }
 
@@ -937,7 +956,7 @@ export default function GraphView({ recommendations, seeds, connection }) {
         d3VelocityDecay={0.8}
         d3AlphaDecay={0.01}
         onEngineStop={() => {
-          if (discovering) graphRef.current?.d3ReheatSimulation();
+          if (!paused) graphRef.current?.d3ReheatSimulation();
         }}
         nodeCanvasObject={nodeCanvasObject}
         nodePointerAreaPaint={nodePointerAreaPaint}
