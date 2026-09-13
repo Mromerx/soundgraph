@@ -1,7 +1,8 @@
 """Cliente para la API de Last.fm (https://www.last.fm/api).
 
 Expone artistas similares, top álbumes, tags y stats de un álbum, con un
-pequeño throttle preventivo (~5 requests/segundo, límite oficial de Last.fm).
+throttle global preventivo que acota las llamadas a la API a un ritmo seguro
+(por defecto ~3.8 requests/segundo, por debajo del límite de 4 del plan).
 """
 import logging
 import threading
@@ -14,9 +15,14 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://ws.audioscrobbler.com/2.0/"
 
-# Last.fm permite ~5 requests/segundo; espaciamos un poco más para estar
-# holgados y no saturar la API.
-RATE_LIMIT_INTERVAL = 0.22  # segundos entre llamadas (~4.5 req/seg)
+# Límite de Last.fm según el plan de la API key (ver
+# ``SOUNDGRAPH_LASTFM_RATE_PER_SECOND`` en settings). Se corre un 5% por
+# debajo del tope: pegarle en el límite exacto dispara 429 que el cliente
+# paga con 2-4s de backoff, mucho más caros que ese pequeño margen. El
+# throttle es GLOBAL y mono-proceso ("runserver"), así que este intervalo
+# aplica a TODO el tráfico a la API: búsqueda de puente, coseno y
+# autocomplete, todos se encolan en el mismo limiter.
+RATE_LIMIT_INTERVAL = 1.0 / settings.SOUNDGRAPH_LASTFM_RATE_PER_SECOND  # segundos entre llamadas
 
 REQUEST_TIMEOUT = 15
 

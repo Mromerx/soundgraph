@@ -23,6 +23,7 @@ env = environ.Env(
     SOUNDGRAPH_MAX_CONCURRENT_SEARCHES=(int, 1),
     SOUNDGRAPH_MEMORY_LIMIT_MB=(int, 4096),
     SOUNDGRAPH_STALE_SEARCH_SECONDS=(int, 60),
+    SOUNDGRAPH_LASTFM_RATE_PER_SECOND=(float, 3.8),
 )
 environ.Env.read_env(BASE_DIR / '.env')
 
@@ -54,6 +55,15 @@ SOUNDGRAPH_MEMORY_LIMIT_MB = env("SOUNDGRAPH_MEMORY_LIMIT_MB")
 # segundos, se la considera zombi y se la expira (status=failed). El hilo podría
 # morir por un reinicio del servidor sin llegar nunca a su estado final.
 SOUNDGRAPH_STALE_SEARCH_SECONDS = env("SOUNDGRAPH_STALE_SEARCH_SECONDS")
+
+# --- Throttle de Last.fm ------------------------------------------------
+# Peticiones por segundo a la API de Last.fm. Corresponde al plan de la API
+# key (ej. 4/s); el cliente casi multiplica 1/rate como intervalo mínimo entre
+# llamadas y se usa un 5% por debajo del tope por defecto (3.8/s) para no
+# treparse al límite exacto: un 429 cuesta 2-4s de backoff, mucho más caro que
+# ese margen. El límite es global y mono-proceso: coseno, grafo de puente y
+# autocomplete comparten el mismo throttle.
+SOUNDGRAPH_LASTFM_RATE_PER_SECOND = env("SOUNDGRAPH_LASTFM_RATE_PER_SECOND")
 
 # Application definition
 

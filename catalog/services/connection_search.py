@@ -35,9 +35,11 @@ import time
 from datetime import timedelta
 
 from django.conf import settings as django_settings
+from django.db.models import F
 from django.utils import timezone
 
 from catalog.models import ConnectionSearch
+from catalog.services import events
 from catalog.services.lastfm_client import get_similar_artists
 
 logger = logging.getLogger(__name__)
@@ -60,6 +62,11 @@ STATUS_FRONTIER_SAMPLE = 800
 # Un nivel con frontera grande tarda minutos en API; sin heartbeat caería en
 # el corte de "sin actividad" y se expiraría una búsqueda LEGÍTIMA.
 HEARTBEAT_INTERVAL_SECONDS = 10
+
+# Estados que cierran una búsqueda. Usados por el SSE (al recibir uno de estos
+# el stream se cierra) y para decidir si un evento debe llevar el payload
+# completo en vez de solo los counts.
+_FINAL_STATUSES = ("found", "exhausted", "failed", "stopped")
 
 
 class _PauseInterrupt(Exception):
@@ -215,6 +222,71 @@ def _wait_while_paused(search_id, refresh_timestamp):
     return "running"
 
 
+def save_with_revision(search):
+    """Persiste estado y avanza ``payload_revision`` (== invalida el ETag/304).
+
+    Todo ``save()`` que persisteda ESTADO debe pasar por acá: el GET de status
+    cachea el payload por revisión, así que sin avanzarla el frontend seguiría
+    recibiendo 304 con contenido viejo. Los heartbeat NO usan esta función:
+    tocan ``updated_at`` con ``QuerySet.update`` y no deben invalidar nada.
+    """
+    search.payload_revision += 1
+    search.save()
+    return search
+
+
+def status_event(search):
+    """Payload de estado para el SSE.
+
+    Lleva los counts Y las muestras del grafo (visitados/frontera/came_from,
+    acotadas) para todos los estados: así el frontend dibuja el grafo creciendo
+    con cada evento (artista por artista) sin depender del poll con ETag. En el
+    estado ``found`` agrega además el ``path`` completo de cada semilla hasta el
+    puente para que el grafo final se dibuje al instante.
+    """
+    payload = compact_status_event(search)
+    payload.update(build_status_payload(search))
+    if search.status == "found" and search.bridge_artist:
+        payload["path"] = reconstruct_path(search, search.bridge_artist)
+    return payload
+
+
+def publish_search_state(search):
+    """Publica el estado actual de ``search`` al bus SSE del frontend.
+
+    Nunca lanza: un problema de publicación no debe tumbar el BFS.
+    """
+    try:
+        events.publish_search_event(search.id, status_event(search))
+    except Exception:
+        logger.exception("No se pudo publicar el evento SSE de la búsqueda %s", search.id)
+
+
+def compact_status_event(search):
+    """Payload mínimo de progreso (sin muestras de grafo), para el SSE."""
+    payload = {
+        "search_id": str(search.id),
+        "status": search.status,
+        "current_depth": search.current_depth,
+        "max_depth": search.max_depth,
+        "bridge_artist": search.bridge_artist,
+        "seed_artists": search.seed_artists,
+        "total_discovered": search.total_discovered,
+        "stopped_reason": search.stopped_reason or None,
+        "visited_count_per_seed": {
+            seed: len(search.visited_per_seed.get(seed, []))
+            for seed in search.seed_artists
+        },
+        "frontier_count_per_seed": {
+            seed: len(search.frontier_per_seed.get(seed, []))
+            for seed in search.seed_artists
+        },
+    }
+    if search.status == "failed":
+        payload["error_message"] = search.error_message
+    return payload
+
+
 def _visited_set_for(search, seed):
     """Devuelve el ``set`` de visitados de la semilla, cacheados en el objeto.
 
@@ -250,7 +322,7 @@ def _similar_cache_for(search, artist, limit):
     return neighbors
 
 
-def expand_one_level(search, on_progress=None):
+def expand_one_level(search, on_progress=None, on_artist_added=None):
     """Expande un nivel de BFS para todas las semillas, con tope de nodos.
 
     Por cada semilla toma su frontera actual, consulta los similares de cada
@@ -273,6 +345,10 @@ def expand_one_level(search, on_progress=None):
             artista de la frontera. Sirve de heartbeat: ``run_full_search``
             lo usa para refrescar ``updated_at`` mientras un nivel largo
             consume los minutos del throttle de Last.fm.
+        on_artist_added: callback opcional invocado después de AGREGAR cada
+            artista nuevo a los visitados. ``run_full_search`` lo usa para
+            publicar progreso SSE "artista por artista" sin persistir en la
+            base (la persistencia sigue siendo a nivel de nivel).
 
     Returns:
         El mismo objeto ``search`` con los conjuntos de visitados, fronteras y
@@ -318,6 +394,8 @@ def expand_one_level(search, on_progress=None):
                 new_artists.append(similar)
                 if similar not in search.came_from and similar not in seed_set:
                     search.came_from[similar] = artist
+                if on_artist_added is not None:
+                    on_artist_added()
             if on_progress is not None:
                 on_progress()
 
@@ -427,6 +505,12 @@ def build_status_payload(search, visited_sample=STATUS_VISITED_SAMPLE, frontier_
     (decenas de MB) cada segundo al frontend era una de las causas del colapso
     de RAM.
 
+    La muestra de visitados es la ventana de los MÁS RECIENTES
+    (``visited[-sample:]``): es la que el frontend mira mientras la
+    exploración crece, así los artistas recién descubiertos aparecen en vivo.
+    La frontera siempre es la actual (los artistas del último nivel), que al
+    recién descubiertos se suma a los visitados.
+
     Con ``full=True`` omite el acotado y devuelve el grafo explorado completo
     (``visited_per_seed``, ``frontier_per_seed`` y ``came_from`` sin recortar).
     Es un pedido puntual del frontend (botón "ver grafo completo"), no el poll
@@ -456,7 +540,7 @@ def build_status_payload(search, visited_sample=STATUS_VISITED_SAMPLE, frontier_
         visited_count_per_seed[seed] = len(visited)
         frontier_count_per_seed[seed] = len(frontier)
 
-        visited_sample_list = visited if full else visited[:visited_sample]
+        visited_sample_list = visited if full else visited[-visited_sample:]
         frontier_sample_list = frontier if full else frontier[:frontier_sample]
 
         visited_per_seed[seed] = visited_sample_list
@@ -516,6 +600,7 @@ def expire_stale_searches(stale_seconds=None):
             f"{stale_seconds} segundos (el servidor puede haberse reiniciado). "
             "Volvé a lanzarla."
         ),
+        payload_revision=F("payload_revision") + 1,
     )
     if expired:
         logger.warning("Se expiraron %s búsqueda(s) zombi por inactividad.", expired)
@@ -540,6 +625,7 @@ def _retire_orphan(search_id):
             "Búsqueda interrumpida: el hilo terminó sin reportar un estado "
             "final. Volvé a lanzarla."
         ),
+        payload_revision=F("payload_revision") + 1,
     )
     if retired:
         logger.warning("Búsqueda %s retirada por hilo muerto sin estado final.", search_id)
@@ -586,7 +672,8 @@ def run_full_search(search_id, sleep_between_levels=0, heartbeat_interval=HEARTB
         return None
 
     search.status = "running"
-    search.save()
+    save_with_revision(search)
+    publish_search_state(search)
 
     last_beat = time.monotonic()
     register_search_control(search_id)
@@ -617,10 +704,20 @@ def run_full_search(search_id, sleep_between_levels=0, heartbeat_interval=HEARTB
         while search.current_depth < search.max_depth:
             try:
                 _check_control(search)
-                expand_one_level(search, on_progress=heartbeat)
+                expand_one_level(
+                    search,
+                    on_progress=heartbeat,
+                    # Un evento SSE por artista descubierto: el frontend dibuja
+                    # las esferas una por una. Los artistas devueltos juntos en
+                    # una misma respuesta de la API se publican seguidos (se
+                    # descubrieron de golpe) y por eso aparecen juntos. No se
+                    # persiste aquí; la base y la revisión avanzan por nivel.
+                    on_artist_added=lambda: publish_search_state(search),
+                )
             except _PauseInterrupt:
                 search.status = "paused"
-                search.save()
+                save_with_revision(search)
+                publish_search_state(search)
                 logger.info(
                     "Búsqueda %s pausada a profundidad %s (%s descubiertos).",
                     search.id,
@@ -630,30 +727,35 @@ def run_full_search(search_id, sleep_between_levels=0, heartbeat_interval=HEARTB
                 if _wait_while_paused(search.id, refresh_timestamp) == "stopped":
                     search.status = "stopped"
                     search.stopped_reason = "user_stop"
-                    search.save()
+                    save_with_revision(search)
+                    publish_search_state(search)
                     logger.info(
                         "Búsqueda %s detenida por el usuario mientras estaba pausada.",
                         search.id,
                     )
                     return search
                 search.status = "running"
-                search.save()
+                save_with_revision(search)
+                publish_search_state(search)
                 logger.info("Búsqueda %s reanudada.", search.id)
                 continue
             except _StopInterrupt:
                 search.status = "stopped"
                 search.stopped_reason = "user_stop"
-                search.save()
+                save_with_revision(search)
+                publish_search_state(search)
                 logger.info("Búsqueda %s detenida por el usuario.", search.id)
                 return search
 
-            search.save()
+            save_with_revision(search)
+            publish_search_state(search)
             heartbeat()
 
             if getattr(search, "over_limit", False):
                 search.status = "exhausted"
                 search.stopped_reason = "node_limit"
-                search.save()
+                save_with_revision(search)
+                publish_search_state(search)
                 logger.info(
                     "Búsqueda %s detenida por tope de nodos (%s) a profundidad %s.",
                     search.id,
@@ -666,19 +768,22 @@ def run_full_search(search_id, sleep_between_levels=0, heartbeat_interval=HEARTB
             if bridge:
                 search.bridge_artist = bridge
                 search.status = "found"
-                search.save()
+                save_with_revision(search)
+                publish_search_state(search)
                 logger.info("Puente encontrado en profundidad %s: %s", search.current_depth + 1, bridge)
                 return search
 
             search.current_depth += 1
-            search.save()
+            save_with_revision(search)
+            publish_search_state(search)
 
             if sleep_between_levels:
                 time.sleep(sleep_between_levels)
 
         search.status = "exhausted"
         search.stopped_reason = ""
-        search.save()
+        save_with_revision(search)
+        publish_search_state(search)
         logger.info(
             "Búsqueda agotada tras %s niveles sin encontrar intersección.",
             search.max_depth,
@@ -691,14 +796,16 @@ def run_full_search(search_id, sleep_between_levels=0, heartbeat_interval=HEARTB
             "La búsqueda se detuvo por falta de memoria (límite del proceso). "
             "Reducí la cantidad de artistas semilla o el tope de nodos."
         )
-        search.save()
+        save_with_revision(search)
+        publish_search_state(search)
         logger.exception("Búsqueda %s agotó la memoria del proceso", search.id)
         return search
 
     except Exception as exc:
         search.status = "failed"
         search.error_message = str(exc)
-        search.save()
+        save_with_revision(search)
+        publish_search_state(search)
         logger.exception("Búsqueda falló en profundidad %s", search.current_depth)
         return search
 

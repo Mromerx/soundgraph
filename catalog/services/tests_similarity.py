@@ -278,7 +278,7 @@ class RecommendTests(TestCase):
         with self.assertRaises(ValueError):
             recommend([seed], candidates, n_results=0)
         with self.assertRaises(ValueError):
-            recommend([seed], candidates, n_results=6)
+            recommend([seed], candidates, n_results=16)
 
 
 class ComputeArtistCentroidTests(TestCase):

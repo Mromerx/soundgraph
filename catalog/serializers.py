@@ -17,11 +17,11 @@ class SeedSerializer(serializers.Serializer):
 class RecommendationsRequestSerializer(serializers.Serializer):
     """Valida el body de ``POST /api/recommendations/``.
 
-    Exige entre 1 y 5 seeds y un ``n_results`` entre 1 y 5.
+    Exige entre 1 y 5 seeds y un ``n_results`` entre 1 y 15.
     """
 
     seeds = SeedSerializer(many=True)
-    n_results = serializers.IntegerField(min_value=1, max_value=5)
+    n_results = serializers.IntegerField(min_value=1, max_value=15)
 
     def validate_seeds(self, value):
         if not 1 <= len(value) <= 5:

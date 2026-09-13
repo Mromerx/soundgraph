@@ -113,6 +113,57 @@ function collideForce(getRadius) {
   return force;
 }
 
+function hierarchicalSeparate({ influence = 70 } = {}) {
+  // Repulsión jerárquica entre pelotas: la colisión dura (no se tocan) la hace
+  // ``collideForce``; esta fuerza ordena por afinidad repeliendo distinto:
+  //   - misma semilla y mismo nivel -> se repelen POCO (viven juntas),
+  //   - misma semilla, nivel distinto -> repulsión media,
+  //   - semillas distintas -> se repelen MÁS (las ramas se separan).
+  let nodes = [];
+  const strengthOf = (a, b) => {
+    if (!a.branch || a.branch !== b.branch) return 2.0; // semilla distinta
+    if (a.depth === b.depth) return 0.5;                // mismo nivel
+    return 1.0;                                         // misma semilla, otro nivel
+  };
+  function force(alpha) {
+    const n = nodes.length;
+    if (n > 800 || n < 2) return;
+    for (let i = 0; i < n; i += 1) {
+      const a = nodes[i];
+      if (!a) continue;
+      if (a.fx !== undefined && a.fy !== undefined) continue;
+      for (let j = i + 1; j < n; j += 1) {
+        const b = nodes[j];
+        if (!b) continue;
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 === 0) {
+          const ang = Math.random() * Math.PI * 2;
+          dx = Math.cos(ang) * 0.01;
+          dy = Math.sin(ang) * 0.01;
+        }
+        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+        if (d >= influence) continue;
+        const k = ((influence - d) / influence) * strengthOf(a, b) * alpha;
+        const nx = dx / d;
+        const ny = dy / d;
+        a.vx -= nx * k;
+        a.vy -= ny * k;
+        b.vx += nx * k;
+        b.vy += ny * k;
+      }
+    }
+  }
+  force.initialize = (n) => {
+    nodes = n;
+  };
+  force.setNodes = (n) => {
+    nodes = n;
+  };
+  return force;
+}
+
 function layoutCenter(nodes, posCache, seedList) {
   const n = nodes.length;
   if (n === 0) return;
@@ -454,7 +505,7 @@ export default function GraphView({ recommendations, seeds, connection }) {
     setFullLoading(true);
     setFullError('');
     try {
-      const data = await getConnectionStatus(connection.search_id, { full: true });
+      const { data } = await getConnectionStatus(connection.search_id, { full: true });
       setFullConnection(data);
       setShowFull(true);
     } catch (err) {
@@ -531,6 +582,19 @@ export default function GraphView({ recommendations, seeds, connection }) {
     graphRef.current.d3ReheatSimulation();
   }, [graph, paused]);
 
+  // Mientras la búsqueda sigue corriendo la simulación nunca queda quieta más
+  // de ~1.5s: un grafo congelado 3s mientras aún se explora parece que se
+  // detuvo. El reheat suave además ayuda a que la fuerza de colisión siga
+  // resolviendo solapamientos (ninguna pelota pegada a otra).
+  useEffect(() => {
+    if (!discovering) return undefined;
+    const id = window.setInterval(() => {
+      const fg = graphRef.current;
+      if (fg) fg.d3ReheatSimulation(0.5);
+    }, 1500);
+    return () => window.clearInterval(id);
+  }, [discovering]);
+
   useEffect(() => {
     const fg = graphRef.current;
     if (!fg) return;
@@ -562,21 +626,29 @@ export default function GraphView({ recommendations, seeds, connection }) {
     f.setNodes(graph.nodes);
 
     const coll = collideForce(
-      (node) => (node.kind === 'bridge' ? 12 : node.kind === 'seed' ? 10 : 8)
+      (node) => (node.kind === 'bridge' ? 14 : node.kind === 'seed' ? 13 : 11)
     );
     fg.d3Force('collide', coll);
     coll.setNodes(graph.nodes);
+
+    const sep = hierarchicalSeparate({ influence: 70 });
+    fg.d3Force('hsep', sep);
+    sep.setNodes(graph.nodes);
 
     if (!paused) fg.d3ReheatSimulation();
   }, [graph, branchAnchors, paused]);
 
   useEffect(() => {
+    // Resetear el estado de vista solo cuando cambia la BÚSQUEDA (search_id)
+    // o las semillas, no ante cada actualización de progreso por SSE (que llega
+    // artista por artista y no debe descartar la selección ni el modo
+    // completo/simplificado en vivo).
     setSelected(null);
     setShowFull(false);
     setFullConnection(null);
     setFullLoading(false);
     setFullError('');
-  }, [connection, seeds]);
+  }, [connection?.search_id, seeds]);
 
   function branchColor(branch) {
     const idx = seedList.indexOf(branch);
@@ -637,11 +709,43 @@ export default function GraphView({ recommendations, seeds, connection }) {
     ctx.globalAlpha = 1;
   };
 
-  const nodePointerAreaPaint = (node, color, ctx) => {
+  const measureCtxRef = useRef(null);
+
+  function labelBox(node, globalScale) {
+    const nodeSize = node.kind === 'bridge' ? 11 : node.kind === 'seed' ? 9 : 7;
+    const fontSize = 12 / globalScale;
+    if (!measureCtxRef.current) {
+      measureCtxRef.current = document.createElement('canvas').getContext('2d');
+    }
+    measureCtxRef.current.font = `${fontSize}px 'Sora', sans-serif`;
+    const halfW = Math.max(
+      nodeSize + 3,
+      measureCtxRef.current.measureText(node.label || '').width / 2 + 3
+    );
+    return {
+      left: node.x - halfW,
+      top: node.y - nodeSize - 3,
+      right: node.x + halfW,
+      bottom: node.y + nodeSize + 2 + fontSize + 3,
+    };
+  }
+
+  function hitGlyph(node, wx, wy, globalScale) {
+    const b = labelBox(node, globalScale);
+    return wx >= b.left && wx <= b.right && wy >= b.top && wy <= b.bottom;
+  }
+
+  const nodePointerAreaPaint = (node, color, ctx, globalScale) => {
     ctx.fillStyle = color;
+    const b = labelBox(node, globalScale);
     ctx.beginPath();
-    const r = node.kind === 'bridge' ? 18 : node.kind === 'seed' ? 16 : 13;
-    ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
+    ctx.roundRect(
+      b.left,
+      b.top,
+      b.right - b.left,
+      b.bottom - b.top,
+      Math.min(6 / globalScale, (b.bottom - b.top) / 2)
+    );
     ctx.fill();
   };
 
@@ -660,32 +764,125 @@ export default function GraphView({ recommendations, seeds, connection }) {
   // librería: con nodos superpuestos ese canvas deja ocultas las esferas que
   // están debajo (solo la última pintada por píxel acepta el click). Acá se
   // calcula la distancia del click a TODAS las esferas y se elige la más
-  // cercana dentro de un radio por tipo, así cada artista es clickeable.
+  // cercana dentro de la silueta de cada una (círculo + etiqueta), así cada
+  // artista es clickeable por más solapado que esté.
   function selectNearestNode(event) {
     const fg = graphRef.current;
-    if (!fg || !event) return;
-    const rect =
-      event.target && event.target.getBoundingClientRect
-        ? event.target.getBoundingClientRect()
-        : containerRef.current?.getBoundingClientRect();
-    if (!rect || !graph.nodes.length) return;
-
-    const clickX = event.clientX - rect.left;
-    const clickY = event.clientY - rect.top;
-
+    if (!fg || !event || !graph.nodes.length) return;
+    const world = clientToWorld(event.clientX, event.clientY);
+    if (!world) return;
+    const globalScale = fg.zoom();
     let best = null;
     let bestDist = Infinity;
     for (const node of graph.nodes) {
-      const screen = fg.graph2ScreenCoords(node.x, node.y);
-      if (!screen || !Number.isFinite(screen.x) || !Number.isFinite(screen.y)) continue;
-      const dist = Math.hypot(screen.x - clickX, screen.y - clickY);
-      const radius = node.kind === 'bridge' ? 26 : node.kind === 'seed' ? 22 : 18;
-      if (dist <= radius && dist < bestDist) {
+      if (!hitGlyph(node, world.x, world.y, globalScale)) continue;
+      const dist = Math.hypot(node.x - world.x, node.y - world.y);
+      if (dist < bestDist) {
         bestDist = dist;
         best = node;
       }
     }
     if (best) setSelected(best);
+  }
+
+  function clientToWorld(clientX, clientY) {
+    const fg = graphRef.current;
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!fg || !rect) return null;
+    const world = fg.screen2GraphCoords(clientX - rect.left, clientY - rect.top);
+    return world && Number.isFinite(world.x) && Number.isFinite(world.y) ? world : null;
+  }
+
+  function findNodeAt(clientX, clientY) {
+    const fg = graphRef.current;
+    if (!fg || !graph.nodes.length) return null;
+    const world = clientToWorld(clientX, clientY);
+    if (!world) return null;
+    const globalScale = fg.zoom();
+    let best = null;
+    let bestDist = Infinity;
+    for (const node of graph.nodes) {
+      if (!hitGlyph(node, world.x, world.y, globalScale)) continue;
+      const dist = Math.hypot(node.x - world.x, node.y - world.y);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = node;
+      }
+    }
+    return best;
+  }
+
+  // El arrastre por defecto de la librería usa el lienzo oculto de colores
+  // (solo el nodo pintado encima por píxel responde) y el lienzo solo pinta
+  // lo que nodePointerAreaPaint dibuja. Eso es lo que hacía que algunas
+  // esferas no agarraran. Acá se detecta la esfera por geometría (círculo +
+  // etiqueta) y se arrastra solo esa esfera: la simulación queda activa y las
+  // fuerzas de enlace estiran la red alrededor, como una red neuronal.
+  const dragStateRef = useRef(null);
+
+  function handleDragStartCaptured(e) {
+    if (dragStateRef.current || e.button !== 0) return;
+    const canvas = containerRef.current?.querySelector('canvas');
+    if (!canvas || e.target !== canvas) return;
+    const node = findNodeAt(e.clientX, e.clientY);
+    if (!node) return;
+    const world = clientToWorld(e.clientX, e.clientY);
+    if (!world) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragStateRef.current = { pointerId: e.pointerId, node, world, moved: false };
+    node.fx = world.x;
+    node.fy = world.y;
+    graphRef.current?.d3AlphaTarget(0.3);
+    graphRef.current?.resetCountdown?.();
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+  }
+
+  function handleDragMoveCaptured(e) {
+    const st = dragStateRef.current;
+    if (!st || e.pointerId !== st.pointerId) return;
+    const fg = graphRef.current;
+    if (!fg) return;
+    const world = clientToWorld(e.clientX, e.clientY);
+    if (!world) return;
+    const dx = world.x - st.world.x;
+    const dy = world.y - st.world.y;
+    st.world = world;
+    if (Math.hypot(dx, dy) > 0.0001) st.moved = true;
+    if (graph.nodes.includes(st.node)) {
+      st.node.fx = world.x;
+      st.node.fy = world.y;
+    }
+    fg.d3AlphaTarget(0.3);
+    fg.resetCountdown?.();
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  function endDrag(pointerId, selectOnClick) {
+    const st = dragStateRef.current;
+    if (!st || st.pointerId !== pointerId) return;
+    dragStateRef.current = null;
+    const fg = graphRef.current;
+    const canvas = containerRef.current?.querySelector('canvas');
+    if (canvas && canvas.hasPointerCapture?.(st.pointerId)) {
+      try { canvas.releasePointerCapture(st.pointerId); } catch (err) { /* ignore */ }
+    }
+    if (fg) {
+      fg.d3AlphaTarget(0);
+      fg.resetCountdown?.();
+    }
+    st.node.fx = undefined;
+    st.node.fy = undefined;
+    if (selectOnClick && !st.moved && graph.nodes.includes(st.node)) setSelected(st.node);
+  }
+
+  function handleDragEndCaptured(e) {
+    endDrag(e.pointerId, true);
+  }
+
+  function handleDragCancelCaptured(e) {
+    endDrag(e.pointerId, false);
   }
 
   function zoomBy(factor) {
@@ -697,7 +894,21 @@ export default function GraphView({ recommendations, seeds, connection }) {
   }
 
   return (
-    <div className="graph-container" ref={containerRef}>
+    <div
+      className="graph-container"
+      ref={containerRef}
+      onPointerDownCapture={handleDragStartCaptured}
+      onPointerMoveCapture={handleDragMoveCaptured}
+      onPointerUpCapture={handleDragEndCaptured}
+      onPointerCancelCapture={handleDragCancelCaptured}
+      onContextMenuCapture={(e) => {
+        const node = findNodeAt(e.clientX, e.clientY);
+        if (node) {
+          e.preventDefault();
+          setSelected(node);
+        }
+      }}
+    >
       {isFound && (
         <div className="graph-toggle">
           <button
@@ -720,6 +931,7 @@ export default function GraphView({ recommendations, seeds, connection }) {
         width={size.width}
         height={size.height}
         nodeRelSize={6}
+        enableNodeDrag={false}
         cooldownTicks={400}
         cooldownTime={12000}
         d3VelocityDecay={0.8}

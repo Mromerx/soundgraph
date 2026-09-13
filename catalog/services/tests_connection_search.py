@@ -362,7 +362,7 @@ class SearchControlRunTests(TestCase):
 
     @mock.patch("catalog.services.connection_search.expand_one_level")
     def test_stop_during_expansion_marks_stopped(self, mock_expand):
-        def interrupt_first(search, on_progress):
+        def interrupt_first(search, on_progress, on_artist_added=None):
             search.total_discovered = 1
             search.visited_per_seed["A"] = ["A", "x"]
             set_search_stopped(search.id)
@@ -382,7 +382,7 @@ class SearchControlRunTests(TestCase):
     def test_pause_wait_and_resume_continues(self, mock_expand):
         calls = []
 
-        def expand(search, on_progress):
+        def expand(search, on_progress, on_artist_added=None):
             calls.append(1)
             if len(calls) == 1:
                 search.total_discovered = 1
@@ -410,7 +410,7 @@ class SearchControlRunTests(TestCase):
 
     @mock.patch("catalog.services.connection_search.expand_one_level")
     def test_stop_while_paused_marks_stopped(self, mock_expand):
-        def pause_first(search, on_progress):
+        def pause_first(search, on_progress, on_artist_added=None):
             search.total_discovered = 1
             set_search_paused(search.id, True)
             on_progress()

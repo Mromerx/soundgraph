@@ -63,7 +63,7 @@ class RecommendationsViewTests(TestCase):
     def test_rejects_n_results_out_of_range(self):
         response = self.client.post(
             self.url,
-            {"seeds": [{"artist": "A", "album": "B"}], "n_results": 6},
+            {"seeds": [{"artist": "A", "album": "B"}], "n_results": 16},
             content_type="application/json",
         )
 
@@ -98,7 +98,7 @@ class RecommendationsViewTests(TestCase):
             self.url,
             {
                 "seeds": [{"artist": "Spiritbox", "album": "Eternal Blue"}],
-                "n_results": 5,
+                "n_results": 15,
             },
             content_type="application/json",
         )

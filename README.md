@@ -43,14 +43,16 @@ Tag data comes exclusively from Last.fm (`album.getinfo`, falling back to `album
   Album list for the chosen artist. Returns `{"results": [{"title", "mbid"}]}`.
 - `POST /api/recommendations/`
   Body: `{"seeds": [{"artist": "Spiritbox", "album": "Eternal Blue"}, ...], "n_results": 5}`
-  `seeds` must have between 1 and 5 items and `n_results` must be between 1 and 5.
+  `seeds` must have between 1 and 5 items and `n_results` must be between 1 and 15.
   Returns a list of `{"artist", "album", "score", "matched_seed", "matched_seeds"}` where `score` is the maximum TF-IDF cosine against any seed expressed as a 0–100 percentage, `matched_seed` is the best-matching seed, and `matched_seeds` lists every seed the album shares tags with (each with its own 0–100 score). Candidates with no tag overlap are dropped.
 - `GET /api/artists/{id}/atypical-albums/`
   Returns the albums of an artist ordered from most to least atypical, with the distance to the centroid.
 - `POST /api/connections/`
   Body: `{"seed_artists": ["Eminem", "Opeth"]}` (between 2 and 5 artist names). Starts a multi-source BFS over the Last.fm similar-artists graph in a background thread looking for a bridge artist. Returns `202` with `{"search_id", "status"}`.
 - `GET /api/connections/{search_id}/`
-  Live progress of a search: `{status, current_depth, max_depth, bridge_artist, seed_artists, visited_per_seed, frontier_per_seed, came_from}`; adds `path` when `status="found"` or `error_message` when `status="failed"`. Statuses: `pending`, `running`, `found`, `exhausted`, `failed`. With `?graph=full` it returns the **complete** explored graph (full `visited_per_seed`/`frontier_per_seed`/`came_from`, unsampled) to visualize the whole search that led to the bridge; by default the payload is compact (sampled) because the frontend polls it every second.
+  Live progress of a search: `{status, current_depth, max_depth, bridge_artist, seed_artists, visited_per_seed, frontier_per_seed, came_from}`; adds `path` when `status="found"` or `error_message` when `status="failed"`. Statuses: `pending`, `running`, `found`, `exhausted`, `failed`. With `?graph=full` it returns the **complete** explored graph (full `visited_per_seed`/`frontier_per_seed`/`came_from`, unsampled) to visualize the whole search that led to the bridge; by default the payload is compact (sampled) and the GET supports ETag revalidation (`If-None-Match`): while the search state does not change it answers `304` without re-serializing the payload.
+- `GET /api/connections/{search_id}/events`
+  SSE stream (`text/event-stream`) of a search's progress. Emits a `data: {payload}` event on every state change (artist discovered, level boundary, pause, resume, stop, or a final status): one event per artist, so spheres appear one by one — artists returned together by a single API response are published back to back (they were discovered at once). Every event carries the graph samples so the frontend draws the exploration growing live. The stream closes when a final status arrives. The bus lives in memory, so with `runserver` the actual BFS thread publishes and the frontend renders the bridge "instantly"; the ETag/304 poll remains as fallback.
 
 ## Prerequisites
 
@@ -174,7 +176,7 @@ The Vite dev server proxies `/api` to the Django server at `http://127.0.0.1:800
 
 1. Add at least 2 seed artists (the panel appears once there are 2+).
 2. Click "Buscar conexión entre estos artistas".
-3. The affinity graph shows the search expanding live (the frontier is polled every second): each seed's branches have its own color. Once found, the bridge artist is highlighted and the seed → bridge paths are listed below the graph.
+3. The affinity graph shows the search expanding live (progress arrives over SSE and the fallback poll is ETag-backed): each seed's branches have its own color. Once found, the bridge artist is highlighted and the seed → bridge paths are listed below the graph.
 4. When the connection is found, the graph defaults to the **simplified** view (only the seed → bridge paths). The **"Ver grafo completo"** button (top-left of the graph) requests the complete explored graph with `?graph=full` and renders it: every visited artist, the final frontier and the `came_from` edges, always keeping the bridge and its ancestor chain visible. The **"Ver grafo simplificado"** button switches back to the paths view.
 
 ## Configuration notes
@@ -182,7 +184,8 @@ The Vite dev server proxies `/api` to the Django server at `http://127.0.0.1:800
 - Vite proxies `/api` to the Django server. If your Django server runs on a different host/port, update `frontend/vite.config.js`.
 - CORS is already configured in `soundgraph/settings.py` (`CORS_ALLOWED_ORIGINS`) for `localhost:3000` and `localhost:5173`.
 - Albums cached without tags (e.g. before the `album.gettoptags` fallback existed) are refetched automatically on the next request.
-- `GET /api/connections/{id}/` returns a compact payload (counts plus sampled `visited_per_seed`/`frontier_per_seed`/`came_from`) because the frontend polls it once per second. The complete explored graph is available on demand with `?graph=full` — the "Ver grafo completo" button requests it a single time, and the frontend caps rendering at a node budget so the browser stays responsive even if the search discovered tens of thousands of artists.
+- `GET /api/connections/{id}/` returns a compact payload (counts plus sampled `visited_per_seed`/`frontier_per_seed`/`came_from`) and supports ETag revalidation: within the same state the endpoint answers `304` (no re-serialization) and the frontend falls back to a slow poll (2s running, 5s paused). The complete explored graph is available on demand with `?graph=full` — the "Ver grafo completo" button requests it a single time, and the frontend caps rendering at a node budget so the browser stays responsive even if the search discovered tens of thousands of artists.
+- **SSE progress**: `ConnectionSearch.payload_revision` advances on every state save (which is the ETag of the GET; heartbeats never touch it). The BFS thread publishes one event per discovered artist to an in-memory bus exposed at `/api/connections/{id}/events` with the graph samples (window of the most recent discoveries), so the frontend draws the search growing artist by artist instead of only at level boundaries; the ETag/304 poll remains as a cheap fallback.
 
 ## Bridge search engine
 

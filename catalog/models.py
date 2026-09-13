@@ -96,6 +96,13 @@ class ConnectionSearch(models.Model):
     bridge_artist = models.CharField(max_length=255, null=True, blank=True)
     current_depth = models.IntegerField(default=0)
     max_depth = models.IntegerField(default=6)
+    # Revisión del payload de status. Cada save que persiste ESTADO (nivel
+    # terminado, found, exhausted, paused, stopped, failed) la avanza; los
+    # heartbeats solo tocan ``updated_at`` y no la mueven. El GET de status la
+    # usa como ETag: si el frontend manda el mismo If-None-Match devolvemos 304
+    # sin re-serializar el payload (la búsqueda queda semanas en estado estático
+    # con gráficos de 174KB; esta revisión es lo que permite cachear).
+    payload_revision = models.IntegerField(default=0)
     error_message = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

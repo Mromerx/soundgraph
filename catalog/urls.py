@@ -6,6 +6,7 @@ from .views import (
     ArtistSearchView,
     AtypicalAlbumsView,
     ConnectionSearchCreateView,
+    ConnectionSearchEventsView,
     ConnectionSearchStatusView,
     RecommendationsView,
 )
@@ -42,5 +43,10 @@ urlpatterns = [
         "connections/<uuid:search_id>/",
         ConnectionSearchStatusView.as_view(),
         name="connections-detail",
+    ),
+    path(
+        "connections/<uuid:search_id>/events",
+        ConnectionSearchEventsView.as_view(),
+        name="connections-events",
     ),
 ]

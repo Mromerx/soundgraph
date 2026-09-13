@@ -96,11 +96,11 @@ def recommend(seed_albums, candidate_albums, n_results=5):
     Args:
         seed_albums: entre 1 y 5 objetos ``Album`` semilla.
         candidate_albums: lista de objetos ``Album`` candidatos.
-        n_results: cantidad de recomendaciones a devolver, entre 1 y 5.
+        n_results: cantidad de recomendaciones a devolver, entre 1 y 15.
 
     Raises:
         ValueError: si ``seed_albums`` no tiene entre 1 y 5 elementos o si
-            ``n_results`` no está entre 1 y 5.
+            ``n_results`` no está entre 1 y 15.
 
     Returns:
         Lista de hasta ``n_results`` dicts con las claves ``album``, ``score``
@@ -110,8 +110,8 @@ def recommend(seed_albums, candidate_albums, n_results=5):
     """
     if not 1 <= len(seed_albums) <= 5:
         raise ValueError("seed_albums debe contener entre 1 y 5 álbumes.")
-    if not 1 <= n_results <= 5:
-        raise ValueError("n_results debe estar entre 1 y 5.")
+    if not 1 <= n_results <= 15:
+        raise ValueError("n_results debe estar entre 1 y 15.")
     if not candidate_albums:
         return []
 

@@ -1,5 +1,5 @@
 const MIN_RESULTS = 1;
-const MAX_RESULTS = 5;
+const MAX_RESULTS = 15;
 
 export default function ResultCountSelector({ nResults, onChange }) {
   const decrement = () => onChange(Math.max(MIN_RESULTS, nResults - 1));
