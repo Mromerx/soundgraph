@@ -347,6 +347,7 @@ export default function GraphView({ recommendations, seeds, connection }) {
   const posCacheRef = useRef({});
   const [size, setSize] = useState({ width: 800, height: 480 });
   const [selected, setSelected] = useState(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [showFull, setShowFull] = useState(false);
   const [fullConnection, setFullConnection] = useState(null);
   const [fullLoading, setFullLoading] = useState(false);
@@ -462,6 +463,39 @@ export default function GraphView({ recommendations, seeds, connection }) {
       setFullLoading(false);
     }
   }
+
+  async function toggleFullscreen() {
+    const el = containerRef.current;
+    if (!el) return;
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await el.requestFullscreen();
+      }
+    } catch (err) {
+      console.error('No se pudo alternar pantalla completa:', err);
+    }
+  }
+
+  useEffect(() => {
+    function onFullscreenChange() {
+      const active = !!document.fullscreenElement;
+      setIsFullscreen(active);
+      // Al cambiar a/desde pantalla completa el contenedor cambia de tamaño;
+      // forzar una medición para que el canvas y el zoom se ajusten.
+      requestAnimationFrame(() => {
+        const node = containerRef.current;
+        if (!node) return;
+        const rect = node.getBoundingClientRect();
+        if (rect.width > 0 || rect.height > 0) {
+          setSize({ width: rect.width || 800, height: rect.height || 480 });
+        }
+      });
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
 
   useEffect(() => {
     function measure() {
@@ -721,6 +755,17 @@ export default function GraphView({ recommendations, seeds, connection }) {
           title="Alejar"
         >
           −
+        </button>
+      </div>
+      <div className="graph-fullscreen">
+        <button
+          type="button"
+          className="graph-zoom-btn"
+          onClick={toggleFullscreen}
+          aria-label={isFullscreen ? 'Salir de pantalla completa' : 'Agrandar (pantalla completa)'}
+          title={isFullscreen ? 'Salir de pantalla completa' : 'Agrandar (pantalla completa)'}
+        >
+          {isFullscreen ? '✕' : '⛶'}
         </button>
       </div>
       {selected && selectedFacts && (
