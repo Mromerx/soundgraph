@@ -368,12 +368,68 @@ button.remove {
   margin: 4px 0;
 }
 
+.node-details-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 8px;
+}
+
+.node-details-badge .node-details-swatch {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+}
+
+.node-details-badge p {
+  margin: 0;
+}
+
 .node-details p.seed {
   color: var(--color-accent);
 }
 
 .node-details p.recommendation {
   color: var(--color-accent);
+}
+
+.node-facts {
+  margin: 8px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.node-fact {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px dashed var(--color-border);
+}
+
+.node-fact:last-child {
+  border-bottom: none;
+}
+
+.node-fact dt {
+  color: var(--color-text-muted);
+}
+
+.node-fact dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.node-fact code {
+  background: var(--color-surface-2);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.75rem;
+  word-break: break-all;
 }
 
 .node-details button {

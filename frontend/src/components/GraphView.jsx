@@ -36,6 +36,21 @@ function depthOf(name, cameFrom) {
   return depth;
 }
 
+function nodeKindLabel(kind) {
+  switch (kind) {
+    case 'seed':
+      return 'Semilla — artista de origen';
+    case 'bridge':
+      return 'Artista puente';
+    case 'hop':
+      return 'Nodo intermedio (hop)';
+    case 'recommendation':
+      return 'Álbum recomendado';
+    default:
+      return 'Nodo';
+  }
+}
+
 function branchForce(accessor, strength) {
   let nodes = [];
   function force(alpha) {
@@ -293,9 +308,32 @@ function buildConnectionGraph(connection, posCache, mode) {
     byKey.get(bridge_artist).kind = 'bridge';
   }
 
+  const linkKeys = new Set();
   for (const [name, parent] of Object.entries(came_from)) {
     if (includedSet.has(name) && includedSet.has(parent)) {
+      const key = `${parent}|${name}`;
+      if (linkKeys.has(key)) continue;
+      linkKeys.add(key);
       links.push({ source: parent, target: name });
+    }
+  }
+
+  // En modo completo, came_from solo conserva la cadena de la semilla que
+  // descubrió el puente primero; las demás semillas (camino [semilla, puente])
+  // quedarían flotando desconectadas. Se agregan los enlaces del path
+  // reconstruido para que TODAS queden unidas al puente y el grafo muestre
+  // la unión, no solo la primera semilla que encontró la coincidencia.
+  if (path && bridge_artist) {
+    for (const chain of Object.values(path)) {
+      for (let i = 0; i < chain.length - 1; i += 1) {
+        const src = chain[i];
+        const dst = chain[i + 1];
+        if (!includedSet.has(src) || !includedSet.has(dst)) continue;
+        const key = `${src}|${dst}`;
+        if (linkKeys.has(key)) continue;
+        linkKeys.add(key);
+        links.push({ source: src, target: dst });
+      }
     }
   }
 
@@ -349,6 +387,49 @@ export default function GraphView({ recommendations, seeds, connection }) {
     for (const node of graph.nodes) map[node.id] = node.branch || node.id;
     return map;
   }, [graph]);
+
+  const degreeById = useMemo(() => {
+    const counts = {};
+    for (const link of graph.links) {
+      const a = typeof link.source === 'string' ? link.source : link.source.id;
+      const b = typeof link.target === 'string' ? link.target : link.target.id;
+      counts[a] = (counts[a] || 0) + 1;
+      counts[b] = (counts[b] || 0) + 1;
+    }
+    return counts;
+  }, [graph]);
+
+  const childrenById = useMemo(() => {
+    const counts = {};
+    for (const link of graph.links) {
+      const src = typeof link.source === 'string' ? link.source : link.source.id;
+      counts[src] = (counts[src] || 0) + 1;
+    }
+    return counts;
+  }, [graph]);
+
+  const selectedFacts = useMemo(() => {
+    if (!selected) return null;
+
+    const hex = selected.branch
+      ? branchColor(selected.branch)
+      : BRIDGE_COLOR;
+
+    const visited = activeConnection?.visited_per_seed?.[selected.branch || ''] || [];
+    const discoverIndex = visited.indexOf(selected.id);
+
+    return {
+      kindLabel: nodeKindLabel(selected.kind),
+      hex: hex,
+      degree: degreeById[selected.id] ?? 0,
+      children: childrenById[selected.id] ?? 0,
+      frontier: !!selected.frontier,
+      discoverIndex: discoverIndex >= 0 ? discoverIndex + 1 : null,
+      totalVisited: visited.length,
+      isExploration:
+        !!activeConnection && selected.kind !== 'recommendation',
+    };
+  }, [selected, graph, activeConnection]);
 
   const branchAnchors = useMemo(() => {
     const anchors = { center: { x: 0, y: 0 } };
@@ -525,7 +606,8 @@ export default function GraphView({ recommendations, seeds, connection }) {
   const nodePointerAreaPaint = (node, color, ctx) => {
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.arc(node.x, node.y, 12, 0, 2 * Math.PI);
+    const r = node.kind === 'bridge' ? 18 : node.kind === 'seed' ? 16 : 13;
+    ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
     ctx.fill();
   };
 
@@ -539,6 +621,38 @@ export default function GraphView({ recommendations, seeds, connection }) {
   };
 
   const linkWidth = (link) => 1 + (link.score ?? 0) * 4;
+
+  // Selección por proximidad real, no por el canvas de color oculto de la
+  // librería: con nodos superpuestos ese canvas deja ocultas las esferas que
+  // están debajo (solo la última pintada por píxel acepta el click). Acá se
+  // calcula la distancia del click a TODAS las esferas y se elige la más
+  // cercana dentro de un radio por tipo, así cada artista es clickeable.
+  function selectNearestNode(event) {
+    const fg = graphRef.current;
+    if (!fg || !event) return;
+    const rect =
+      event.target && event.target.getBoundingClientRect
+        ? event.target.getBoundingClientRect()
+        : containerRef.current?.getBoundingClientRect();
+    if (!rect || !graph.nodes.length) return;
+
+    const clickX = event.clientX - rect.left;
+    const clickY = event.clientY - rect.top;
+
+    let best = null;
+    let bestDist = Infinity;
+    for (const node of graph.nodes) {
+      const screen = fg.graph2ScreenCoords(node.x, node.y);
+      if (!screen || !Number.isFinite(screen.x) || !Number.isFinite(screen.y)) continue;
+      const dist = Math.hypot(screen.x - clickX, screen.y - clickY);
+      const radius = node.kind === 'bridge' ? 26 : node.kind === 'seed' ? 22 : 18;
+      if (dist <= radius && dist < bestDist) {
+        bestDist = dist;
+        best = node;
+      }
+    }
+    if (best) setSelected(best);
+  }
 
   function zoomBy(factor) {
     const fg = graphRef.current;
@@ -586,7 +700,8 @@ export default function GraphView({ recommendations, seeds, connection }) {
         linkDirectionalParticles={(link) => (link.score ? 1 : 0)}
         linkDirectionalParticleWidth={(link) => (link.score ?? 0) * 2}
         linkDirectionalParticleColor={linkColor}
-        onNodeClick={(node) => setSelected(node)}
+        onNodeClick={(node, ev) => selectNearestNode(ev)}
+        onBackgroundClick={(ev) => selectNearestNode(ev)}
       />
       <div className="graph-zoom">
         <button
@@ -608,21 +723,65 @@ export default function GraphView({ recommendations, seeds, connection }) {
           −
         </button>
       </div>
-      {selected && (
+      {selected && selectedFacts && (
         <aside className="node-details">
           <h3>{selected.label}</h3>
-          <p className={selected.kind}>
-            {selected.kind === 'seed'
-              ? 'Semilla'
-              : selected.kind === 'bridge'
-                ? 'Artista puente'
-                : selected.kind === 'hop'
-                  ? 'Nodo intermedio'
-                  : 'Recomendación'}
-          </p>
-          {selected.depth !== undefined && (
-            <p>Iteración: {selected.depth}</p>
-          )}
+
+          <div className="node-details-badge">
+            <span
+              className="node-details-swatch"
+              style={{ backgroundColor: selectedFacts.hex }}
+            />
+            <p className={selected.kind}>{selectedFacts.kindLabel}</p>
+          </div>
+
+          <dl className="node-facts">
+            <div className="node-fact">
+              <dt>Iteración (nivel BFS)</dt>
+              <dd>{selected.depth !== undefined ? selected.depth : '—'}</dd>
+            </div>
+            <div className="node-fact">
+              <dt>Rama / semilla raíz</dt>
+              <dd>{selected.branch || 'centro del grafo'}</dd>
+            </div>
+            <div className="node-fact">
+              <dt>Vecinos directos (grado)</dt>
+              <dd>{selectedFacts.degree}</dd>
+            </div>
+            {selectedFacts.isExploration && (
+              <>
+                <div className="node-fact">
+                  <dt>Descubrió (descendientes)</dt>
+                  <dd>{selectedFacts.children}</dd>
+                </div>
+                <div className="node-fact">
+                  <dt>Almacén del BFS</dt>
+                  <dd>{selectedFacts.frontier ? 'Frontera' : 'Nodo interior'}</dd>
+                </div>
+                {selectedFacts.discoverIndex !== null && (
+                  <div className="node-fact">
+                    <dt>N.º de descubrimiento</dt>
+                    <dd>
+                      #{selectedFacts.discoverIndex} de {selectedFacts.totalVisited}
+                    </dd>
+                  </div>
+                )}
+              </>
+            )}
+            <div className="node-fact">
+              <dt>Identificador</dt>
+              <dd>
+                <code>{selected.id}</code>
+              </dd>
+            </div>
+            <div className="node-fact">
+              <dt>Color (hex)</dt>
+              <dd>
+                <code>{selectedFacts.hex}</code>
+              </dd>
+            </div>
+          </dl>
+
           {selected.kind === 'recommendation' && (
             <>
               <p>
