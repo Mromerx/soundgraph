@@ -89,7 +89,7 @@ export default function AlbumCombobox({ artist, album, onChange }) {
       <input
         type="text"
         className="combobox-input"
-        placeholder={disabled ? 'Primero elegí un artista' : 'Álbum'}
+        placeholder={disabled ? 'Primero elige un artista' : 'Álbum'}
         value={disabled ? '' : query}
         autoComplete="off"
         disabled={disabled}

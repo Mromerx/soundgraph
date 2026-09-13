@@ -1,8 +1,8 @@
-"""Tests de los clientes de APIs y de la capa de caché.
+"""Tests del cliente de Last.fm y de la capa de caché.
 
-Todos usan ``unittest.mock`` para simular las respuestas de Discogs/Last.fm:
-no se hace NINGUNA llamada real a las APIs. El throttle se desactiva para no
-ralentizar los tests.
+Todos usan ``unittest.mock`` para simular las respuestas de Last.fm: no se
+hace NINGUNA llamada real a la API. El throttle se desactiva para no ralentizar
+los tests.
 """
 from datetime import timedelta
 from unittest import mock
@@ -12,7 +12,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from catalog.models import Album, Artist
-from catalog.services import cache, discogs_client, lastfm_client
+from catalog.services import cache, lastfm_client
 
 
 def _mock_response(status_code=200, payload=None, http_error=False):
@@ -31,80 +31,11 @@ class _ClientTestCase(TestCase):
     """Base para tests de clientes: desactiva el throttle entre tests."""
 
     def setUp(self):
-        self._discogs_interval = discogs_client._discogs_throttle.min_interval
         self._lastfm_interval = lastfm_client._lastfm_throttle.min_interval
-        discogs_client._discogs_throttle.min_interval = 0
         lastfm_client._lastfm_throttle.min_interval = 0
 
     def tearDown(self):
-        discogs_client._discogs_throttle.min_interval = self._discogs_interval
         lastfm_client._lastfm_throttle.min_interval = self._lastfm_interval
-
-
-class DiscogsSearchReleaseTests(_ClientTestCase):
-    @mock.patch("catalog.services.discogs_client.requests.get")
-    def test_returns_first_result_id(self, mock_get):
-        mock_get.return_value = _mock_response(
-            payload={"results": [{"id": 123, "title": "The Downward Spiral"}, {"id": 456}]}
-        )
-
-        self.assertEqual(discogs_client.search_release("Nine Inch Nails", "The Downward Spiral"), 123)
-
-    @mock.patch("catalog.services.discogs_client.requests.get")
-    def test_no_results_returns_none(self, mock_get):
-        mock_get.return_value = _mock_response(payload={"results": []})
-
-        self.assertIsNone(discogs_client.search_release("Unknown Artist", "Unknown Album"))
-
-    @mock.patch("catalog.services.discogs_client.requests.get")
-    def test_404_returns_none(self, mock_get):
-        mock_get.return_value = _mock_response(status_code=404, http_error=True)
-
-        self.assertIsNone(discogs_client.search_release("Artist", "Album"))
-
-    @mock.patch("catalog.services.discogs_client.requests.get")
-    def test_sends_auth_header_and_type_filter(self, mock_get):
-        mock_get.return_value = _mock_response(payload={"results": [{"id": 1}]})
-
-        discogs_client.search_release("Artist", "Album")
-
-        args, kwargs = mock_get.call_args
-        headers = kwargs["headers"]
-        self.assertTrue(headers["Authorization"].startswith("Discogs token="))
-        self.assertEqual(kwargs["params"]["type"], "release")
-        self.assertEqual(kwargs["params"]["per_page"], 1)
-
-    @mock.patch("catalog.services.discogs_client.requests.get")
-    def test_http_500_raises_discogs_error(self, mock_get):
-        mock_get.return_value = _mock_response(status_code=500, http_error=True)
-
-        with self.assertRaises(discogs_client.DiscogsError):
-            discogs_client.search_release("Artist", "Album")
-
-
-class DiscogsReleaseDetailTests(_ClientTestCase):
-    @mock.patch("catalog.services.discogs_client.requests.get")
-    def test_returns_genres_and_styles(self, mock_get):
-        mock_get.return_value = _mock_response(
-            payload={"id": 123, "genres": ["Rock", "Electronic"], "styles": ["Synth-pop", "Shoegaze"]}
-        )
-
-        self.assertEqual(
-            discogs_client.get_release_detail(123),
-            {"genres": ["Rock", "Electronic"], "styles": ["Synth-pop", "Shoegaze"]},
-        )
-
-    @mock.patch("catalog.services.discogs_client.requests.get")
-    def test_nonexistent_release_returns_none(self, mock_get):
-        mock_get.return_value = _mock_response(status_code=404, http_error=True)
-
-        self.assertIsNone(discogs_client.get_release_detail(999999))
-
-    @mock.patch("catalog.services.discogs_client.requests.get")
-    def test_missing_fields_return_empty_lists(self, mock_get):
-        mock_get.return_value = _mock_response(payload={"id": 123})
-
-        self.assertEqual(discogs_client.get_release_detail(123), {"genres": [], "styles": []})
 
 
 class LastFmSimilarArtistsTests(_ClientTestCase):
@@ -285,6 +216,63 @@ class LastFmAlbumFullInfoTests(_ClientTestCase):
         self.assertEqual(second_params["api_key"], api_key)
 
 
+class LastFmRateLimitTests(_ClientTestCase):
+    """Reintentos y errores claros cuando Last.fm limita las consultas."""
+
+    def _get_mock(self, payload=None):
+        return mock.patch("catalog.services.lastfm_client.requests.get")
+
+    def _no_sleep(self):
+        return mock.patch("catalog.services.lastfm_client.time.sleep")
+
+    @mock.patch("catalog.services.lastfm_client.requests.get")
+    def test_transient_503_is_retried_and_returns_data(self, mock_get):
+        mock_get.side_effect = [
+            _mock_response(status_code=503),
+            _mock_response(
+                payload={"similarartists": {"artist": [{"name": "Tool"}]}}
+            ),
+        ]
+        with self._no_sleep():
+            result = lastfm_client.get_similar_artists("Opeth")
+
+        self.assertEqual(result, ["Tool"])
+        self.assertEqual(mock_get.call_count, 2)
+
+    @mock.patch("catalog.services.lastfm_client.requests.get")
+    def test_persistent_503_raises_friendly_error(self, mock_get):
+        mock_get.side_effect = [
+            _mock_response(status_code=503),
+            _mock_response(status_code=503),
+            _mock_response(status_code=503),
+        ]
+        with self._no_sleep():
+            with self.assertRaises(lastfm_client.LastFMError) as ctx:
+                lastfm_client.get_similar_artists("Opeth")
+
+        self.assertIn("limitando", str(ctx.exception))
+        self.assertEqual(mock_get.call_count, 3)
+
+    @mock.patch("catalog.services.lastfm_client.requests.get")
+    def test_body_rate_limit_error_raises_instead_of_empty_list(self, mock_get):
+        mock_get.return_value = _mock_response(
+            payload={"error": 29, "message": "Rate limit exceeded"}
+        )
+
+        with self.assertRaises(lastfm_client.LastFMError) as ctx:
+            lastfm_client.get_similar_artists("Opeth")
+
+        self.assertIn("limitando", str(ctx.exception))
+
+    @mock.patch("catalog.services.lastfm_client.requests.get")
+    def test_other_body_errors_still_return_none(self, mock_get):
+        mock_get.return_value = _mock_response(
+            payload={"error": 6, "message": "Artist not found"}
+        )
+
+        self.assertEqual(lastfm_client.get_similar_artists("Nobody"), [])
+
+
 class CachedArtistGraphTests(TestCase):
     """Tests del caché de artistas similares y top albums por artista."""
 
@@ -330,13 +318,10 @@ class GetOrFetchAlbumCacheTests(TestCase):
     """Tests de la capa cache-first con las APIs mockeadas."""
 
     def setUp(self):
-        self._discogs_interval = discogs_client._discogs_throttle.min_interval
         self._lastfm_interval = lastfm_client._lastfm_throttle.min_interval
-        discogs_client._discogs_throttle.min_interval = 0
         lastfm_client._lastfm_throttle.min_interval = 0
 
     def tearDown(self):
-        discogs_client._discogs_throttle.min_interval = self._discogs_interval
         lastfm_client._lastfm_throttle.min_interval = self._lastfm_interval
 
     @mock.patch("catalog.services.lastfm_client.get_album_full_info")
@@ -355,8 +340,6 @@ class GetOrFetchAlbumCacheTests(TestCase):
         self.assertEqual(Artist.objects.count(), 1)
         self.assertEqual(album.artist.name, "Opeth")
         self.assertEqual(album.title, "Blackwater Park")
-        self.assertEqual(album.genres, [])
-        self.assertEqual(album.styles, [])
         self.assertEqual(album.tags, [{"name": "melancholic", "count": 45}])
         self.assertEqual(album.listeners, 1000)
         self.assertEqual(album.playcount, 5000)
@@ -396,31 +379,6 @@ class GetOrFetchAlbumCacheTests(TestCase):
         self.assertEqual(second.tag_document, "art rock")
 
     @mock.patch("catalog.services.lastfm_client.get_album_full_info")
-    def test_refetch_preserves_existing_genres_and_styles(self, mock_info):
-        """Un refetch (expiración) conserva géneros/estilos ya cacheados."""
-        artist = Artist.objects.create(name="Massive Attack")
-        album = Album.objects.create(
-            artist=artist,
-            title="Mezzanine",
-            genres=["Electronic"],
-            styles=["Trip Hop"],
-            listeners=1,
-            playcount=1,
-        )
-        Album.objects.filter(pk=album.pk).update(cached_at=timezone.now() - timedelta(days=90))
-
-        mock_info.return_value = {"listeners": 200, "playcount": 900}
-
-        refreshed = cache.get_or_fetch_album("Massive Attack", "Mezzanine")
-
-        mock_info.assert_called_once()
-        self.assertEqual(refreshed.pk, album.pk)
-        refreshed.refresh_from_db()
-        self.assertEqual(refreshed.genres, ["Electronic"])
-        self.assertEqual(refreshed.styles, ["Trip Hop"])
-        self.assertEqual(refreshed.listeners, 200)
-
-    @mock.patch("catalog.services.lastfm_client.get_album_full_info")
     def test_expired_cache_triggers_refetch(self, mock_info):
         artist = Artist.objects.create(name="Massive Attack")
         album = Album.objects.create(artist=artist, title="Mezzanine", listeners=1, playcount=1)
@@ -433,8 +391,7 @@ class GetOrFetchAlbumCacheTests(TestCase):
         mock_info.assert_called_once()
         self.assertEqual(refreshed.pk, album.pk)
         refreshed.refresh_from_db()
-        self.assertEqual(refreshed.genres, [])
-        self.assertEqual(refreshed.styles, [])
+        self.assertEqual(refreshed.tags, [])
         self.assertEqual(refreshed.listeners, 200)
 
     @mock.patch("catalog.services.lastfm_client.get_album_full_info")
@@ -443,8 +400,6 @@ class GetOrFetchAlbumCacheTests(TestCase):
 
         album = cache.get_or_fetch_album("Unknown Artist", "Unknown Album")
 
-        self.assertEqual(album.genres, [])
-        self.assertEqual(album.styles, [])
         self.assertEqual(album.tags, [])
         self.assertEqual(album.listeners, 0)
         self.assertEqual(album.playcount, 0)

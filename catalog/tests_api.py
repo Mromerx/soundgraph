@@ -17,8 +17,6 @@ def _make_album(artist, title, tag_document=""):
     return Album.objects.create(
         artist=artist,
         title=title,
-        genres=[],
-        styles=[],
         tags=[],
         tag_document=tag_document,
     )
@@ -27,7 +25,7 @@ def _make_album(artist, title, tag_document=""):
 def _fake_album_fetch(seed, candidate):
     """Side effect de ``get_or_fetch_album`` que no depende del orden de hilos."""
 
-    def fetch(artist, title, include_discogs=True):
+    def fetch(artist, title):
         if artist == seed.artist.name and title == seed.title:
             return seed
         if artist == candidate.artist.name and title == candidate.title:

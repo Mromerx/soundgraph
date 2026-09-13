@@ -2,10 +2,8 @@
 
 ``get_or_fetch_album`` es la ÚNICA puerta de entrada que el resto del sistema
 debe usar para obtener datos de álbumes: primero consulta la base de datos y
-solo si el registro no existe o expiró llama al cliente de Last.fm. El uso de
-Discogs está desactivado por el momento: los álbumes solo llevan tags y
-estadísticas de Last.fm (los géneros/estilos ya cacheados de Discogs, si los
-hay, se conservan pero no se vuelven a pedir).
+solo si el registro no existe o expiró llama al cliente de Last.fm. Los álbumes
+llevan únicamente datos de Last.fm (tags, listeners y playcount).
 """
 import logging
 from datetime import timedelta
@@ -19,15 +17,12 @@ from . import lastfm_client
 logger = logging.getLogger(__name__)
 
 
-def _build_tag_document(genres, styles, tags):
+def _build_tag_document(tags):
     """Arma el documento de texto plano que alimenta el vector TF-IDF.
 
-    Une en un único string en minúsculas los géneros y estilos (Discogs) y los
-    nombres de los tags (Last.fm).
+    Une en un único string en minúsculas los nombres de los tags de Last.fm.
     """
-    parts = [genre for genre in genres if genre]
-    parts += [style for style in styles if style]
-    parts += [tag["name"] for tag in tags if tag.get("name")]
+    parts = [tag["name"] for tag in tags if tag.get("name")]
     return " ".join(parts).lower()
 
 
@@ -79,9 +74,8 @@ def get_or_fetch_album(artist_name, album_title, ttl_days=60):
     2. Si existe y ``cached_at`` es más reciente que ``ttl_days`` atrás, lo
        devuelve tal cual (sin tocar las APIs).
     3. Si no existe o expiró, llama a Last.fm (tags, listeners/playcount vía
-       ``album.getinfo``), conserva los géneros/estilos ya cacheados si los
-       hay, arma el ``tag_document`` y hace ``update_or_create`` (creando el
-       ``Artist`` con ``get_or_create`` si falta).
+       ``album.getinfo``), arma el ``tag_document`` y hace ``update_or_create``
+       (creando el ``Artist`` con ``get_or_create`` si falta).
     4. Devuelve el ``Album`` actualizado.
 
     Args:
@@ -109,20 +103,16 @@ def get_or_fetch_album(artist_name, album_title, ttl_days=60):
 
     info = lastfm_client.get_album_full_info(artist_name, album_title)
     tags = info.get("tags") or []
-    genres = (album.genres or []) if album else []
-    styles = (album.styles or []) if album else []
 
     artist, _ = Artist.objects.get_or_create(name=artist_name)
     album, _ = Album.objects.update_or_create(
         artist=artist,
         title=album_title,
         defaults={
-            "genres": genres,
-            "styles": styles,
             "tags": tags,
             "listeners": info.get("listeners", 0),
             "playcount": info.get("playcount", 0),
-            "tag_document": _build_tag_document(genres, styles, tags),
+            "tag_document": _build_tag_document(tags),
         },
     )
     logger.info("Fetched and cached album %s - %s", artist_name, album_title)

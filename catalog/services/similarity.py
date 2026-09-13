@@ -1,9 +1,8 @@
 """Motor de similitud musical basado en TF-IDF y similitud coseno.
 
-Convierte la información textual de cada álbum (géneros/estilos de Discogs y
-tags de Last.fm) en un documento, lo vectoriza con TF-IDF y calcula
-similitudes coseno para recomendar álbumes candidatos entre las semillas del
-usuario.
+Convierte los tags de Last.fm de cada álbum en un documento, lo vectoriza con
+TF-IDF y calcula similitudes coseno para recomendar álbumes candidatos entre
+las semillas del usuario.
 """
 import numpy as np
 
@@ -16,24 +15,21 @@ from catalog.models import Album, AlbumSimilarity
 def build_tag_document(album):
     """Arma y cachea el documento de texto usado para vectorizar un álbum.
 
-    Combina los géneros y estilos de Discogs (repitiendo cada tag 3 veces
-    para darle más peso) con los tags de Last.fm que tengan ``count >= 5``
-    (repitiendo cada uno ``max(1, count // 20)`` veces). Devuelve un único
-    string en minúsculas con todo separado por espacios.
+    Combina los tags de Last.fm que tengan ``count >= 5`` (repitiendo cada uno
+    ``max(1, count // 20)`` veces). Devuelve un único string en minúsculas con
+    todo separado por espacios.
 
     El resultado se guarda en ``album.tag_document`` y se persiste con
     ``save()`` únicamente si el álbum ya existe en la base de datos, de modo
     que el documento no se recalcula en cada llamada.
 
     Args:
-        album: objeto ``Album`` con ``genres``, ``styles`` y ``tags`` poblados.
+        album: objeto ``Album`` con ``tags`` poblados.
 
     Returns:
         El documento de texto ya construido (string en minúsculas).
     """
     tokens = []
-    for tag in (album.genres or []) + (album.styles or []):
-        tokens.extend([tag] * 3)
     for entry in album.tags or []:
         name = entry.get("name", "")
         count = int(entry.get("count") or 0)

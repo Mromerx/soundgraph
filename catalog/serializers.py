@@ -73,3 +73,16 @@ class ConnectionSearchRequestSerializer(serializers.Serializer):
                 "Debes enviar entre 2 y 5 artistas semilla."
             )
         return value
+
+
+class ConnectionSearchControlSerializer(serializers.Serializer):
+    """Valida el body de ``PATCH /api/connections/{search_id}/``.
+
+    La acción de control aplica sobre una búsqueda en curso:
+    ``pause``, ``resume`` o ``stop``.
+    """
+
+    action = serializers.ChoiceField(
+        choices=["pause", "resume", "stop"],
+        error_messages={"invalid_choice": "Acción de control no válida."},
+    )

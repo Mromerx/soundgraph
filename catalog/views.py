@@ -9,8 +9,12 @@
   más populares del artista elegido.
 - ``AtypicalAlbumsView``: ``GET /api/artists/{id}/atypical-albums/`` detecta qué
   álbumes de un artista se desvían más de su centroide sonoro.
+- ``ConnectionSearchStatusView``: ``GET /api/connections/{search_id}/`` reporta
+  el progreso del BFS y, con ``PATCH`` de la misma URL, pausa/reanuda/detiene
+  la búsqueda (``{"action": "pause" | "resume" | "stop"}``).
 """
 from concurrent.futures import ThreadPoolExecutor
+import logging
 
 from django.http import Http404
 from rest_framework import status
@@ -23,11 +27,41 @@ from .serializers import (
     AlbumSearchSerializer,
     ArtistSearchSerializer,
     AtypicalAlbumSerializer,
+    ConnectionSearchControlSerializer,
     ConnectionSearchRequestSerializer,
     RecommendationsRequestSerializer,
 )
-from .services import background, cache, similarity, lastfm_client
+from .services import background, cache, connection_search, similarity, lastfm_client
+from .services.connection_search import (
+    build_status_payload,
+    set_search_paused,
+    set_search_stopped,
+)
 from .services.lastfm_client import LastFMError
+
+logger = logging.getLogger(__name__)
+
+
+def _connection_status_payload(search, full=False):
+    """Arma el payload de estado de una búsqueda, compacto o completo.
+
+    Compartido por ``GET`` y ``PATCH`` de ``/api/connections/{search_id}/``
+    para que el frontend siempre reciba la misma forma de respuesta.
+    """
+    payload = {
+        "search_id": str(search.id),
+        "status": search.status,
+        "current_depth": search.current_depth,
+        "max_depth": search.max_depth,
+        "bridge_artist": search.bridge_artist,
+        "seed_artists": search.seed_artists,
+        **build_status_payload(search, full=full),
+    }
+    if search.status == "found":
+        payload["path"] = connection_search.reconstruct_path(search, search.bridge_artist)
+    elif search.status == "failed":
+        payload["error_message"] = search.error_message
+    return payload
 
 
 class RecommendationsView(APIView):
@@ -117,7 +151,7 @@ class RecommendationsView(APIView):
     def _fetch_seed_and_candidates(cls, seeds):
         """Enriquece semillas y candidatos en paralelo en un único pool.
 
-        Todos los álbumes usan SOLO Last.fm (Discogs desactivado). Un fallo en
+        Todos los álbumes usan SOLO Last.fm. Un fallo en
         una semilla se propaga como ``LastFMError``; un candidato que falle se
         descarta.
 
@@ -254,35 +288,101 @@ class ConnectionSearchCreateView(APIView):
 
 
 class ConnectionSearchStatusView(APIView):
-    """Reporta el estado de una búsqueda de artista puente.
+    """Reporta el estado de una búsqueda de artista puente y la controla.
 
     ``GET /api/connections/{search_id}/`` expone el progreso del BFS en tiempo
     real (``status``, ``current_depth``, ``max_depth``); si terminó con
     ``status="found"`` incluye además el path reconstruido entre semillas, y si
     falló, el ``error_message``.
+
+    ``PATCH /api/connections/{search_id}/`` con ``{"action": ...}`` pausa
+    (``pause``), reanuda (``resume``) o detiene (``stop``) la búsqueda. La
+    pausa/detención se persiste en el ``status`` de la fila (``paused`` /
+    ``stopped``) y, si la búsqueda corre en este proceso, se notifica al hilo en
+    memoria para que corte la expansión en el siguiente artista de la frontera.
+
+    Por defecto el payload viene compacto (muestras acotadas del grafo). Con
+    ``?graph=full`` se devuelve el grafo explorado completo
+    (``visited_per_seed``/``came_from`` sin recortar), para que el frontend
+    pueda visualizar toda la exploración que llevó al puente.
     """
 
+    FINAL_STATUSES = ["found", "exhausted", "failed", "stopped"]
+
     def get(self, request, search_id):
+        # Expira zombis antes de leer: si se pide el estado de una búsqueda a
+        # la que nunca llegó un "estado final" (hilo muerto por reinicio), que
+        # el recurso devuelva su cierre en vez de un running eterno.
+        from .services.connection_search import expire_stale_searches
+
+        expire_stale_searches()
+
+        search = ConnectionSearch.objects.filter(pk=search_id).first()
+        if search is None:
+            raise Http404("Búsqueda no encontrada.")
+
+        full_graph = request.query_params.get("graph") == "full"
+        return Response(_connection_status_payload(search, full=full_graph))
+
+    def patch(self, request, search_id):
+        serializer = ConnectionSearchControlSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        from .services.connection_search import expire_stale_searches
+
+        expire_stale_searches()
+
         try:
             search = ConnectionSearch.objects.get(pk=search_id)
         except ConnectionSearch.DoesNotExist:
             raise Http404("Búsqueda no encontrada.")
 
-        payload = {
-            "status": search.status,
-            "current_depth": search.current_depth,
-            "max_depth": search.max_depth,
-            "bridge_artist": search.bridge_artist,
-            "seed_artists": search.seed_artists,
-            "visited_per_seed": search.visited_per_seed,
-            "frontier_per_seed": search.frontier_per_seed,
-            "came_from": search.came_from,
-        }
-        if search.status == "found":
-            from .services.connection_search import reconstruct_path
+        if search.status in self.FINAL_STATUSES:
+            return Response(
+                {
+                    "detail": (
+                        f"No se puede controlar una búsqueda {search.status}."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-            payload["path"] = reconstruct_path(search, search.bridge_artist)
-        elif search.status == "failed":
-            payload["error_message"] = search.error_message
+        action = serializer.validated_data["action"]
 
-        return Response(payload)
+        if action == "pause":
+            if search.status == "paused":
+                return Response(
+                    {"detail": "La búsqueda ya está pausada."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            search.status = "paused"
+            search.save()
+            handled = set_search_paused(search_id, True)
+        elif action == "resume":
+            if search.status != "paused":
+                return Response(
+                    {
+                        "detail": (
+                            "Solo se puede reanudar una búsqueda pausada "
+                            f"(estado actual: {search.status})."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            search.status = "running"
+            search.save()
+            handled = set_search_paused(search_id, False)
+        else:  # stop
+            search.status = "stopped"
+            search.stopped_reason = "user_stop"
+            search.save()
+            handled = set_search_stopped(search_id)
+
+        logger.info(
+            "Acción '%s' aplicada a la búsqueda %s (control en este proceso: %s).",
+            action,
+            search_id,
+            "sí" if handled else "no (se verá al releer la base)",
+        )
+        return Response(_connection_status_payload(search))

@@ -2,21 +2,31 @@ const MIN_RESULTS = 1;
 const MAX_RESULTS = 5;
 
 export default function ResultCountSelector({ nResults, onChange }) {
+  const decrement = () => onChange(Math.max(MIN_RESULTS, nResults - 1));
+  const increment = () => onChange(Math.min(MAX_RESULTS, nResults + 1));
+
   return (
-    <label className="result-count">
+    <div className="result-count">
       <span>Resultados: {nResults}</span>
-      <input
-        type="range"
-        min={MIN_RESULTS}
-        max={MAX_RESULTS}
-        step={1}
-        value={nResults}
-        onChange={(e) => onChange(Number(e.target.value))}
-      />
-      <span className="range-labels">
-        <small>{MIN_RESULTS}</small>
-        <small>{MAX_RESULTS}</small>
-      </span>
-    </label>
+      <div className="stepper">
+        <button
+          type="button"
+          onClick={decrement}
+          disabled={nResults <= MIN_RESULTS}
+          aria-label="Menos resultados"
+        >
+          <span>&minus;</span>
+        </button>
+        <span aria-live="polite">{nResults}</span>
+        <button
+          type="button"
+          onClick={increment}
+          disabled={nResults >= MAX_RESULTS}
+          aria-label="Más resultados"
+        >
+          <span>+</span>
+        </button>
+      </div>
+    </div>
   );
 }

@@ -19,6 +19,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 env = environ.Env(
     DEBUG=(bool, False),
+    SOUNDGRAPH_NODE_LIMIT=(int, 50_000),
+    SOUNDGRAPH_MAX_CONCURRENT_SEARCHES=(int, 1),
+    SOUNDGRAPH_MEMORY_LIMIT_MB=(int, 4096),
+    SOUNDGRAPH_STALE_SEARCH_SECONDS=(int, 60),
 )
 environ.Env.read_env(BASE_DIR / '.env')
 
@@ -34,8 +38,22 @@ DEBUG = env("DEBUG")
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=[".localhost", "127.0.0.1", "localhost"])
 
 # External API keys (not consumed here yet; exposed for other services)
-DISCOGS_TOKEN = env("DISCOGS_TOKEN", default="")
 LASTFM_API_KEY = env("LASTFM_API_KEY", default="")
+
+# --- Límites de memoria y búsqueda ------------------------------------
+# La búsqueda de artista puente explora un grafo que crece exponencialmente.
+# Estos tres knobs son las salvaguardas: el BFS nunca puede exceder el tope de
+# nodos, nunca corren más búsquedas en paralelo de las permitidas, y el
+# proceso entero queda capado en RAM (resource.setrlimit, POSIX).
+SOUNDGRAPH_NODE_LIMIT = env("SOUNDGRAPH_NODE_LIMIT")
+SOUNDGRAPH_MAX_CONCURRENT_SEARCHES = env("SOUNDGRAPH_MAX_CONCURRENT_SEARCHES")
+SOUNDGRAPH_MEMORY_LIMIT_MB = env("SOUNDGRAPH_MEMORY_LIMIT_MB")
+
+# Una búsqueda emite un "heartbeat" a la base cada pocos segundos mientras
+# trabaja. Si está pending/running sin actividad por más de esta cantidad de
+# segundos, se la considera zombi y se la expira (status=failed). El hilo podría
+# morir por un reinicio del servidor sin llegar nunca a su estado final.
+SOUNDGRAPH_STALE_SEARCH_SECONDS = env("SOUNDGRAPH_STALE_SEARCH_SECONDS")
 
 # Application definition
 

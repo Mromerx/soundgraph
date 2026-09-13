@@ -26,7 +26,7 @@ export default function App() {
 
     const nonEmpty = seeds.filter((s) => s.artist.trim() && s.album.trim());
     if (nonEmpty.length === 0) {
-      setError('Elegí al menos un artista y uno de sus álbumes de la lista.');
+      setError('Elige al menos un artista y uno de sus álbumes de la lista.');
       return;
     }
 
@@ -51,8 +51,8 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>Soundgraph</h1>
-        <p>Descubrí álbumes por similitud musical.</p>
+        <h1>SoundGraph</h1>
+        <p>Descubre álbumes por similitud musical.</p>
       </header>
 
       <main className="app-main">

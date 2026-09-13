@@ -1,5 +1,6 @@
 import uuid
 
+from django.conf import settings
 from django.db import models
 
 
@@ -17,13 +18,10 @@ class Artist(models.Model):
 class Album(models.Model):
     artist = models.ForeignKey(Artist, on_delete=models.CASCADE, related_name="albums")
     title = models.CharField(max_length=255)
-    genres = models.JSONField(default=list)      # Discogs: ["Rock", "Electronic"]
-    styles = models.JSONField(default=list)      # Discogs: ["Synth-pop", "Shoegaze"]
     tags = models.JSONField(default=list)        # Last.fm: [{"name": "melancholic", "count": 45}, ...]
     listeners = models.IntegerField(default=0)   # Last.fm
     playcount = models.IntegerField(default=0)   # Last.fm
     tag_document = models.TextField(blank=True)  # documento de texto ya mezclado, para TF-IDF
-    discogs_enriched = models.BooleanField(default=False)  # sabe si ya pasó por Discogs
     cached_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -58,14 +56,36 @@ class UserFavorite(models.Model):
         return f"{self.user} -> {self.album}"
 
 
+def _default_node_limit():
+    return getattr(settings, "SOUNDGRAPH_NODE_LIMIT", 50_000)
+
+
 class ConnectionSearch(models.Model):
     STATUS_CHOICES = [
         ("pending", "pending"),
         ("running", "running"),
+        ("paused", "paused"),
         ("found", "found"),
         ("exhausted", "exhausted"),
         ("failed", "failed"),
+        ("stopped", "stopped"),
     ]
+
+    STOPPED_REASON_CHOICES = [
+        ("", "none"),
+        ("node_limit", "node_limit"),
+        ("user_stop", "user_stop"),
+    ]
+
+    # Tope de nodos descubiertos en TODAS las semillas. Es la salvaguarda
+    # principal de memoria/CPU: sin él, un BFS sobre artistas muy populares
+    # explota exponencialmente (frontera ~10x por nivel) y mantiene todo el
+    # estado en RAM y en un JSON gigante en la base.
+    node_limit = models.IntegerField(default=_default_node_limit)
+    total_discovered = models.IntegerField(default=0)
+    stopped_reason = models.CharField(
+        max_length=30, choices=STOPPED_REASON_CHOICES, blank=True, default=""
+    )
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     seed_artists = models.JSONField()

@@ -20,6 +20,13 @@ RATE_LIMIT_INTERVAL = 0.22  # segundos entre llamadas (~4.5 req/seg)
 
 REQUEST_TIMEOUT = 15
 
+# Cuando Last.fm limita las consultas responde 429/502/503. Retransmitir con
+# backoff acotado permite sobrevivir throttling transitorio; tras varios
+# intentos falla con un mensaje claro en vez de romper la búsqueda en silencio.
+RETRYABLE_STATUSES = {429, 502, 503}
+MAX_API_RETRIES = 3
+RETRY_BACKOFF_BASE = 2.0  # segundos: 2, 4 para reintentos 1 y 2
+
 
 class LastFMError(Exception):
     """Se lanza cuando la API de Last.fm responde con un error inesperado."""
@@ -60,8 +67,24 @@ def _to_int(value):
         return 0
 
 
+def _retry_delay(response, attempt):
+    """Espera entre reintentos: respeta ``Retry-After`` o backoff exponencial."""
+    base = RETRY_BACKOFF_BASE * (2 ** attempt)
+    if response is None:
+        return base
+    try:
+        retry_after = response.headers.get("Retry-After")
+        if retry_after:
+            parsed = int(retry_after)
+            if parsed > 0:
+                return parsed
+    except (AttributeError, TypeError, ValueError):
+        pass
+    return base
+
+
 def _request(method, params):
-    """GET a la API respetando el throttle.
+    """GET a la API respetando el throttle y con reintentos por límite.
 
     Args:
         method: método de la API (ej: ``artist.getsimilar``).
@@ -70,6 +93,11 @@ def _request(method, params):
     Returns:
         JSON parseado, o ``None`` cuando Last.fm responde un error "amable"
         (error en el body con HTTP 200) o un 404 HTTP.
+
+    Raises:
+        LastFMError: si la conexión falla, si la API responde con un status
+            inesperado, o si tras reintentos sigue limitando (429/502/503) o
+            responde un error de límite de API en el body (códigos 15/29).
     """
     _lastfm_throttle.wait()
     query = {
@@ -78,33 +106,64 @@ def _request(method, params):
         "format": "json",
         **params,
     }
-    try:
-        response = requests.get(BASE_URL, params=query, timeout=REQUEST_TIMEOUT)
-    except requests.RequestException as exc:
-        logger.warning("Last.fm request failed for %s: %s", method, exc)
-        raise LastFMError(f"request failed for {method}: {exc}") from exc
 
-    if response.status_code == requests.codes.not_found:
-        logger.info("Last.fm returned 404 for %s", method)
-        return None
+    for attempt in range(MAX_API_RETRIES):
+        try:
+            response = requests.get(BASE_URL, params=query, timeout=REQUEST_TIMEOUT)
+        except requests.RequestException as exc:
+            if attempt < MAX_API_RETRIES - 1:
+                logger.warning("Last.fm request failed for %s (%s); reintentando", method, exc)
+                time.sleep(_retry_delay(None, attempt))
+                continue
+            logger.warning("Last.fm request failed for %s: %s", method, exc)
+            raise LastFMError(f"request failed for {method}: {exc}") from exc
 
-    try:
-        response.raise_for_status()
-    except requests.RequestException as exc:
-        logger.warning("Last.fm returned status %s for %s", response.status_code, method)
-        raise LastFMError(f"unexpected status {response.status_code} for {method}") from exc
+        if response.status_code in RETRYABLE_STATUSES:
+            if attempt < MAX_API_RETRIES - 1:
+                logger.warning(
+                    "Last.fm %s for %s; reintentando en %ss",
+                    response.status_code, method, _retry_delay(response, attempt),
+                )
+                time.sleep(_retry_delay(response, attempt))
+                continue
+            logger.error("Last.fm %s for %s agotó los reintentos", response.status_code, method)
+            raise LastFMError(
+                f"Last.fm está limitando las consultas ({response.status_code} "
+                f"para {method}). Esperá un momento y volvé a intentar."
+            )
 
-    try:
-        data = response.json()
-    except ValueError as exc:
-        logger.warning("Last.fm returned invalid JSON for %s", method)
-        raise LastFMError(f"invalid JSON for {method}") from exc
+        if response.status_code == requests.codes.not_found:
+            logger.info("Last.fm returned 404 for %s", method)
+            return None
 
-    if isinstance(data, dict) and data.get("error"):
-        logger.info("Last.fm error %s for %s: %s", data.get("error"), method, data.get("message"))
-        return None
+        try:
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            logger.warning("Last.fm returned status %s for %s", response.status_code, method)
+            raise LastFMError(f"unexpected status {response.status_code} for {method}") from exc
 
-    return data
+        try:
+            data = response.json()
+        except ValueError as exc:
+            logger.warning("Last.fm returned invalid JSON for %s", method)
+            raise LastFMError(f"invalid JSON for {method}") from exc
+
+        if isinstance(data, dict) and data.get("error"):
+            code = data.get("error")
+            if code in (15, 29):
+                # 15: temporary error, 29: rate limit exceeded. Devuelto como
+                # error explícito para no confundir "sin datos" con "limitado".
+                logger.warning("Last.fm límite de API (%s) para %s", code, method)
+                raise LastFMError(
+                    f"Last.fm está limitando las consultas ({data.get('message') or code}). "
+                    "Esperá un momento y volvé a intentar."
+                )
+            logger.info("Last.fm error %s for %s: %s", data.get("error"), method, data.get("message"))
+            return None
+
+        return data
+
+    raise LastFMError(f"no se pudo completar {method} tras {MAX_API_RETRIES} intentos")
 
 
 def _as_list(value):

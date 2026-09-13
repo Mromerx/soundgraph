@@ -26,6 +26,14 @@ export function startConnectionSearch(seedArtists) {
   });
 }
 
-export function getConnectionStatus(searchId) {
-  return request(`/connections/${encodeURIComponent(searchId)}/`);
+export function getConnectionStatus(searchId, { full = false } = {}) {
+  const query = full ? '?graph=full' : '';
+  return request(`/connections/${encodeURIComponent(searchId)}/${query}`);
+}
+
+export function controlConnectionSearch(searchId, action) {
+  return request(`/connections/${encodeURIComponent(searchId)}/`, {
+    method: 'PATCH',
+    body: JSON.stringify({ action }),
+  });
 }

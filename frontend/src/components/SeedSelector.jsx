@@ -77,7 +77,7 @@ export default function SeedSelector({ seeds, onChange }) {
         onClick={addSeed}
         disabled={seeds.length >= MAX_SEEDS}
       >
-        +
+        <span>+</span>
       </button>
       {seeds.length >= MAX_SEEDS && (
         <span className="hint">Máximo {MAX_SEEDS} semillas.</span>

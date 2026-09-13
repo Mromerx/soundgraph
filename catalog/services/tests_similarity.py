@@ -1,7 +1,7 @@
 """Tests unitarios del motor de similitud musical.
 
 Usan la base de datos de test de Django con álbumes de prueba hardcodeados:
-no dependen de la base de datos real ni de las APIs de Discogs/Last.fm. Los
+no dependen de la base de datos real ni de la API de Last.fm. Los
 ``tag_document`` se fijan a mano para aislar la lógica del TF-IDF y la
 selección por score máximo.
 """
@@ -24,24 +24,20 @@ def _make_artist(name):
     return artist
 
 
-def _make_album(artist, title, tag_document=None, genres=None, styles=None, tags=None):
+def _make_album(artist, title, tag_document=None, tags=None):
     return Album.objects.create(
         artist=artist,
         title=title,
-        genres=genres or [],
-        styles=styles or [],
         tags=tags or [],
         tag_document=tag_document or "",
     )
 
 
 class BuildTagDocumentTests(TestCase):
-    def test_combines_genres_styles_and_tags_weighed_and_lowercase(self):
+    def test_repeats_tags_by_count_and_lowercases(self):
         album = _make_album(
             _make_artist("Opeth"),
             "Blackwater Park",
-            genres=["Metal"],
-            styles=["Thrash"],
             tags=[
                 {"name": "Progressive", "count": 100},
                 {"name": "Obscure", "count": 4},
@@ -51,11 +47,10 @@ class BuildTagDocumentTests(TestCase):
 
         document = build_tag_document(album)
 
-        # "Metal" y "Thrash" se repiten 3 veces; "Progressive" 100//20=5
-        # veces; "Melancholic" 40//20=2 veces; "Obscure" se descarta por ser < 5.
+        # "Progressive" 100//20=5 veces; "Melancholic" 40//20=2 veces;
+        # "Obscure" se descarta por ser < 5.
         self.assertEqual(
             document,
-            "metal metal metal thrash thrash thrash "
             "progressive progressive progressive progressive progressive "
             "melancholic melancholic",
         )
@@ -90,14 +85,13 @@ class BuildTagDocumentTests(TestCase):
         album = _make_album(
             _make_artist("NIN"),
             "The Downward Spiral",
-            genres=["Rock"],
-            styles=["Industrial"],
+            tags=[{"name": "Industrial", "count": 60}],
         )
 
         build_tag_document(album)
 
         album.refresh_from_db()
-        self.assertEqual(album.tag_document, "rock rock rock industrial industrial industrial")
+        self.assertEqual(album.tag_document, "industrial industrial industrial")
 
 
 class ComputeSimilarityMatrixTests(TestCase):
@@ -121,7 +115,7 @@ class ComputeSimilarityMatrixTests(TestCase):
 
     def test_builds_missing_tag_documents(self):
         artist = _make_artist("Pink Floyd")
-        album = _make_album(artist, "The Wall", genres=["Progressive"])
+        album = _make_album(artist, "The Wall", tags=[{"name": "Progressive", "count": 60}])
 
         compute_similarity_matrix([album])
 
