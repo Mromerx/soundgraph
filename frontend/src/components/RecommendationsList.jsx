@@ -1,3 +1,5 @@
+import { t } from '../i18n.js';
+
 export default function RecommendationsList({ recommendations }) {
   return (
     <ul className="recommendations">
@@ -7,14 +9,14 @@ export default function RecommendationsList({ recommendations }) {
             <strong>{rec.artist}</strong> — {rec.album}
           </div>
           <div className="recommendation-score">
-            Posible gusto: <strong>{rec.score}%</strong>
+            {t('result.posibleTaste')} <strong>{rec.score}%</strong>
           </div>
           {rec.matched_seeds && rec.matched_seeds.length > 0 && (
             <div className="recommendation-links">
-              Conecta con:{' '}
+              {t('result.connects')}{' '}
               {rec.matched_seeds
                 .map((m) => `${m.artist} — ${m.album} (${m.score}%)`)
-                .join(' · ')}
+                .join(t('result.separator'))}
             </div>
           )}
         </li>

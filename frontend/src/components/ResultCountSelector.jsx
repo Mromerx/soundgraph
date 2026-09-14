@@ -1,3 +1,5 @@
+import { t } from '../i18n.js';
+
 const MIN_RESULTS = 1;
 const MAX_RESULTS = 15;
 
@@ -7,13 +9,13 @@ export default function ResultCountSelector({ nResults, onChange }) {
 
   return (
     <div className="result-count">
-      <span>Resultados: {nResults}</span>
+      <span>{t('recommend.results', { n: nResults })}</span>
       <div className="stepper">
         <button
           type="button"
           onClick={decrement}
           disabled={nResults <= MIN_RESULTS}
-          aria-label="Menos resultados"
+          aria-label={t('recommend.fewer')}
         >
           <span>&minus;</span>
         </button>
@@ -22,7 +24,7 @@ export default function ResultCountSelector({ nResults, onChange }) {
           type="button"
           onClick={increment}
           disabled={nResults >= MAX_RESULTS}
-          aria-label="Más resultados"
+          aria-label={t('recommend.more')}
         >
           <span>+</span>
         </button>

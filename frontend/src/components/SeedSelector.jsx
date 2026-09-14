@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { t } from '../i18n.js';
 import ArtistCombobox from './ArtistCombobox.jsx';
 import AlbumCombobox from './AlbumCombobox.jsx';
 
@@ -39,7 +40,7 @@ export default function SeedSelector({ seeds, onChange }) {
 
   function removeSeed(key) {
     if (seeds.length === 1) {
-      setError('Debes dejar al menos una semilla.');
+      setError(t('seeds.minError'));
       return;
     }
     onChange(seeds.filter((seed) => seed.key !== key));
@@ -47,8 +48,8 @@ export default function SeedSelector({ seeds, onChange }) {
 
   return (
     <section className="seed-box">
-      <h2>Semillas</h2>
-      <p className="section-desc">Define los artistas y/o álbumes de referencia que alimentan el análisis.</p>
+      <h2>{t('seeds.title')}</h2>
+      <p className="section-desc">{t('seeds.desc')}</p>
       {seeds.map((seed, index) => (
         <div key={seed.key} className="seed-row">
           <span className="seed-index">{index + 1}.</span>
@@ -64,7 +65,7 @@ export default function SeedSelector({ seeds, onChange }) {
           <button
             type="button"
             className="remove"
-            title="Quitar semilla"
+            title={t('seeds.remove')}
             disabled={seeds.length === 1}
             onClick={() => removeSeed(seed.key)}
           >
@@ -81,7 +82,7 @@ export default function SeedSelector({ seeds, onChange }) {
         <span>+</span>
       </button>
       {seeds.length >= MAX_SEEDS && (
-        <span className="hint">Máximo {MAX_SEEDS} semillas.</span>
+        <span className="hint">{t('seeds.maxHint', { max: MAX_SEEDS })}</span>
       )}
       {error && <p className="error">{error}</p>}
     </section>

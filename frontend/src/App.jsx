@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { fetchRecommendations } from './api/soundgraph.js';
+import { t, translateError } from './i18n.js';
 import ConnectionSearchPanel from './components/ConnectionSearchPanel.jsx';
 import GraphView from './components/GraphView.jsx';
 import RecommendationsList from './components/RecommendationsList.jsx';
@@ -20,13 +21,17 @@ export default function App() {
     .map((s) => s.artist.trim())
     .filter(Boolean);
 
+  const canRecommend =
+    seedArtists.length > 0 &&
+    seeds.filter((s) => s.artist.trim()).every((s) => s.album.trim());
+
   async function handleSubmit(event) {
     event.preventDefault();
     setError('');
 
     const nonEmpty = seeds.filter((s) => s.artist.trim() && s.album.trim());
     if (nonEmpty.length === 0) {
-      setError('Elige al menos un artista y uno de sus álbumes de la lista.');
+      setError(t('recommend.noSeedError'));
       return;
     }
 
@@ -41,7 +46,7 @@ export default function App() {
       });
       setResults(data);
     } catch (err) {
-      setError(err.message);
+      setError(translateError(err.message));
       setResults(null);
     } finally {
       setLoading(false);
@@ -52,19 +57,20 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <h1>SoundGraph</h1>
-        <p>Descubre álbumes afines y encuentra el puente entre tus artistas.</p>
+        <p>{t('app.tagline')}</p>
       </header>
 
       <main className="app-main">
         <form className="controls" onSubmit={handleSubmit}>
           <SeedSelector seeds={seeds} onChange={setSeeds} />
           <section className="recommend-controls">
-            <h2>Búsqueda por similitud coseno</h2>
-            <p className="section-desc">Encuentra álbumes afines a tus semillas mediante la similitud coseno TF-IDF.</p>
+            <h2>{t('recommend.title')}</h2>
+            <p className="section-desc">{t('recommend.desc')}</p>
             <ResultCountSelector nResults={nResults} onChange={setNResults} />
-            <button type="submit" className="submit" disabled={loading}>
-              {loading ? 'Recomendando…' : 'Recomendar'}
+            <button type="submit" className="submit" disabled={loading || !canRecommend}>
+              {loading ? t('recommend.loading') : t('recommend.submit')}
             </button>
+            {!canRecommend && <p className="button-hint">{t('recommend.hint')}</p>}
           </section>
         </form>
 
@@ -72,8 +78,8 @@ export default function App() {
 
         {results !== null && !loading && (
           <section className="results">
-            <h2>Recomendaciones</h2>
-            <p className="section-desc">Candidatos ordenados por su puntaje de similitud coseno TF-IDF.</p>
+            <h2>{t('results.title')}</h2>
+            <p className="section-desc">{t('results.desc')}</p>
             <RecommendationsList recommendations={results} />
           </section>
         )}
@@ -86,8 +92,8 @@ export default function App() {
 
         {connection !== null && (
           <section className="results">
-            <h2>Grafo de la conexión</h2>
-            <p className="section-desc">Visualiza la expansión del grafo de afinidad hasta encontrar el artista puente.</p>
+            <h2>{t('graph.title')}</h2>
+            <p className="section-desc">{t('graph.desc')}</p>
             <GraphView connection={connection} />
           </section>
         )}

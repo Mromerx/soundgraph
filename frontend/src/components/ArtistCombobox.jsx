@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { searchArtists } from '../api/soundgraph.js';
+import { t } from '../i18n.js';
 
 const DEBOUNCE_MS = 300;
 
-export default function ArtistCombobox({ artist, onChange, placeholder = 'Artista' }) {
+export default function ArtistCombobox({ artist, onChange, placeholder = t('artist.placeholder') }) {
   const [query, setQuery] = useState(artist);
   const [options, setOptions] = useState([]);
   const [open, setOpen] = useState(false);
@@ -109,7 +110,7 @@ export default function ArtistCombobox({ artist, onChange, placeholder = 'Artist
               <span className="combobox-name">{option.name}</span>
               {option.listeners > 0 && (
                 <span className="combobox-meta">
-                  {option.listeners.toLocaleString()} oyentes
+                  {t('artist.listeners', { count: option.listeners.toLocaleString() })}
                 </span>
               )}
             </li>
@@ -117,7 +118,7 @@ export default function ArtistCombobox({ artist, onChange, placeholder = 'Artist
         </ul>
       )}
       {open && !loading && options.length === 0 && (
-        <div className="combobox-empty">Sin resultados en Last.fm</div>
+        <div className="combobox-empty">{t('artist.empty')}</div>
       )}
     </div>
   );

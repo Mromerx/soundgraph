@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
+import { t, translateError } from '../i18n.js';
 import {
   controlConnectionSearch,
   getConnectionStatus,
@@ -136,7 +137,7 @@ export default function ConnectionSearchPanel({ seedArtists, onStart, onStatus }
       // pintarse por delante de eventos más viejos en cola.
       enqueueStatus(data);
     } catch (err) {
-      setError(err.message);
+      setError(translateError(err.message));
       stopPolling();
       closeStream();
       return;
@@ -158,7 +159,7 @@ export default function ConnectionSearchPanel({ seedArtists, onStart, onStatus }
       const { search_id } = await startConnectionSearch(seedArtists);
       setSearchId(search_id);
     } catch (err) {
-      setError(err.message);
+      setError(translateError(err.message));
     } finally {
       setStarting(false);
     }
@@ -172,7 +173,7 @@ export default function ConnectionSearchPanel({ seedArtists, onStart, onStatus }
       const next = await controlConnectionSearch(searchId, action);
       applyStatus(next);
     } catch (err) {
-      setError(err.message);
+      setError(translateError(err.message));
     } finally {
       setControlling(false);
     }
@@ -228,8 +229,8 @@ export default function ConnectionSearchPanel({ seedArtists, onStart, onStatus }
   return (
     <Fragment>
       <section className="connection-panel">
-        <h2>Búsqueda de conexión por grafo de artistas</h2>
-        <p className="section-desc">Localiza mediante BFS multiorigen el artista puente que une a todas las semillas.</p>
+        <h2>{t('connection.title')}</h2>
+        <p className="section-desc">{t('connection.desc')}</p>
 
         <button
           type="button"
@@ -238,43 +239,47 @@ export default function ConnectionSearchPanel({ seedArtists, onStart, onStatus }
           disabled={!canSearch || running}
         >
           {starting
-            ? 'Iniciando búsqueda…'
+            ? t('connection.starting')
             : running
-              ? 'Buscando conexión…'
+              ? t('connection.searching')
               : hasPreviousSearch
-                ? 'Buscar otra conexión'
-                : 'Buscar conexión'}
+                ? t('connection.searchAgain')
+                : t('connection.search')}
         </button>
+        {!canSearch && <p className="button-hint">{t('connection.hint')}</p>}
 
         {error && <p className="error">{error}</p>}
 
         {status && status.status === 'exhausted' && (
           <>
-            <h2>Búsqueda agotada</h2>
+            <h2>{t('connection.exhausted')}</h2>
             <p>
               {hitNodeLimit
-                ? `Se exploraron ${status.total_discovered ?? 0} artistas sin encontrar una conexión dentro del límite de seguridad. Prueba con artistas más cercanos entre sí.`
-                : 'No se encontró una conexión directa entre estos artistas dentro del límite de búsqueda'}
+                ? t('connection.exhaustedLimit', { count: status.total_discovered ?? 0 })
+                : t('connection.exhaustedNone')}
             </p>
           </>
         )}
 
         {status && status.status === 'failed' && (
           <>
-            <h2>Error en la búsqueda</h2>
-            <p className="error">{status.error_message || 'Error desconocido'}</p>
+            <h2>{t('connection.failed')}</h2>
+            <p className="error">{status.error_message || t('connection.unknownError')}</p>
           </>
         )}
 
         {status && status.status === 'stopped' && (
-          <p className="connection-progress">Búsqueda detenida por el usuario.</p>
+          <p className="connection-progress">{t('connection.stopped')}</p>
         )}
 
         {live && (
           <p className="connection-progress">
             {status.status === 'paused'
-              ? 'Búsqueda pausada. Reanudala o detenela cuando quieras.'
-              : `Explorando nivel ${status.current_depth ?? 0} de ${status.max_depth ?? 0}${status.total_discovered ? ` · ${status.total_discovered} artistas` : ''}...`}
+              ? t('connection.paused')
+              : `${t('connection.exploring', {
+                  depth: status.current_depth ?? 0,
+                  max: status.max_depth ?? 0,
+                })}${status.total_discovered ? ` ${t('connection.artists', { count: status.total_discovered })}` : ''}...`}
           </p>
         )}
 
@@ -286,7 +291,7 @@ export default function ConnectionSearchPanel({ seedArtists, onStart, onStatus }
               onClick={() => sendControl(status.status === 'paused' ? 'resume' : 'pause')}
               disabled={controlling}
             >
-              {status.status === 'paused' ? 'Reanudar' : 'Pausar'}
+              {status.status === 'paused' ? t('connection.resume') : t('connection.pause')}
             </button>
             <button
               type="button"
@@ -294,7 +299,7 @@ export default function ConnectionSearchPanel({ seedArtists, onStart, onStatus }
               onClick={() => sendControl('stop')}
               disabled={controlling}
             >
-              Detener
+              {t('connection.stop')}
             </button>
           </div>
         )}
@@ -302,9 +307,9 @@ export default function ConnectionSearchPanel({ seedArtists, onStart, onStatus }
 
       {status && status.status === 'found' && (
         <section className="results">
-          <h2>Conexión encontrada</h2>
+          <h2>{t('connection.found')}</h2>
           <p className="section-desc">
-            Artista puente: {status.bridge_artist}
+            {t('connection.bridgePrefix', { name: status.bridge_artist })}
           </p>
           <div className="connection-paths">
             {Object.entries(status.path || {}).map(([seed, chain]) => (

@@ -101,6 +101,15 @@ npm run dev                   # app en http://localhost:5173/
 
 El servidor de desarrollo de Vite hace proxy de `/api` al servidor de Django en `http://localhost:8000`, así el frontend llama al backend de forma transparente. CORS para `localhost:3000`/`localhost:5173` ya está configurado en `soundgraph/settings.py`.
 
+## Idioma
+
+El frontend lee `VITE_LANG` del `.env` de la raíz (Vite lo carga vía `envDir` en `frontend/vite.config.js`):
+
+- `VITE_LANG=es` → interfaz en español
+- `VITE_LANG=en` → interfaz en inglés
+
+Cualquier otro valor cae por defecto a español. Elegí un solo idioma para toda la interfaz; no se soporta mezclar idiomas.
+
 ## Configuración
 
 Toda la configuración vive en `.env` (ver `.env.example`):
@@ -112,6 +121,7 @@ Toda la configuración vive en `.env` (ver `.env.example`):
 | `DJANGO_ALLOWED_HOSTS` | `localhost,127.0.0.1` | Hosts permitidos separados por coma. |
 | `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` | `soundgraph`, `5432` | Datos de conexión a PostgreSQL. |
 | `LASTFM_API_KEY` | — | **Requerida.** API key de Last.fm. |
+| `VITE_LANG` | `es` | Idioma de la interfaz del frontend: `es` (español) o `en` (inglés). Lo lee Vite desde el `.env` de la raíz. |
 | `SOUNDGRAPH_NODE_LIMIT` | `50000` | Tope de artistas distintos que el BFS de puente puede descubrir en total. La frontera crece ~10x por nivel; esto acota memoria/CPU. Al alcanzarlo la búsqueda termina en `exhausted` (`stopped_reason="node_limit"`). |
 | `SOUNDGRAPH_MAX_CONCURRENT_SEARCHES` | `1` | Máximo de búsquedas de puente en paralelo (cada BFS mantiene todo su estado en RAM). `0` lo desactiva. |
 | `SOUNDGRAPH_MEMORY_LIMIT_MB` | `4096` | Tope duro de RAM para todo el proceso vía `resource.setrlimit` (POSIX). Si se excede, la búsqueda falla limpio con `status="failed"` en vez de tumbar el servidor. `0` lo desactiva. |

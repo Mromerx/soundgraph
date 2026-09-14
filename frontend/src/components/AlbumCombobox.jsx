@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchArtistAlbums } from '../api/soundgraph.js';
+import { t, translateError } from '../i18n.js';
 
 export default function AlbumCombobox({ artist, album, onChange }) {
   const [query, setQuery] = useState(album);
@@ -35,7 +36,7 @@ export default function AlbumCombobox({ artist, album, onChange }) {
       })
       .catch((err) => {
         if (cancelled) return;
-        setError(err.message);
+        setError(translateError(err.message));
         setAlbums([]);
       })
       .finally(() => {
@@ -89,7 +90,7 @@ export default function AlbumCombobox({ artist, album, onChange }) {
       <input
         type="text"
         className="combobox-input"
-        placeholder={disabled ? 'Primero elige un artista' : 'Álbum'}
+        placeholder={disabled ? t('album.pickArtistFirst') : t('album.placeholder')}
         value={disabled ? '' : query}
         autoComplete="off"
         disabled={disabled}
@@ -123,7 +124,7 @@ export default function AlbumCombobox({ artist, album, onChange }) {
         </ul>
       )}
       {open && !loading && filtered.length === 0 && (
-        <div className="combobox-empty">Sin álbumes para «{query.trim()}»</div>
+        <div className="combobox-empty">{t('album.empty', { album: query.trim() })}</div>
       )}
     </div>
   );

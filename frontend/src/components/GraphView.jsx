@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ForceGraph2D } from 'react-force-graph';
 import { getConnectionStatus } from '../api/connections.js';
+import { t, translateError } from '../i18n.js';
 
 const REC_COLOR = '#ffffff';
 const BRIDGE_COLOR = '#4ade80';
@@ -39,15 +40,15 @@ function depthOf(name, cameFrom) {
 function nodeKindLabel(kind) {
   switch (kind) {
     case 'seed':
-      return 'Semilla — artista de origen';
+      return t('graph.kind.seed');
     case 'bridge':
-      return 'Artista puente';
+      return t('graph.kind.bridge');
     case 'hop':
-      return 'Nodo intermedio (hop)';
+      return t('graph.kind.hop');
     case 'recommendation':
-      return 'Álbum recomendado';
+      return t('graph.kind.recommendation');
     default:
-      return 'Nodo';
+      return t('graph.kind.node');
   }
 }
 
@@ -513,7 +514,7 @@ export default function GraphView({ recommendations, seeds, connection }) {
       setFullConnection(data);
       setShowFull(true);
     } catch (err) {
-      setFullError(err.message);
+      setFullError(translateError(err.message));
     } finally {
       setFullLoading(false);
     }
@@ -974,10 +975,10 @@ export default function GraphView({ recommendations, seeds, connection }) {
             disabled={fullLoading}
           >
             {fullLoading
-              ? 'Cargando grafo completo…'
+              ? t('graph.loadingFull')
               : showFull
-                ? 'Ver grafo simplificado'
-                : 'Ver grafo completo'}
+                ? t('graph.showSimple')
+                : t('graph.showFull')}
           </button>
           {fullError && <p className="graph-toggle-error">{fullError}</p>}
         </div>
@@ -1011,8 +1012,8 @@ export default function GraphView({ recommendations, seeds, connection }) {
           type="button"
           className="graph-zoom-btn"
           onClick={() => zoomBy(ZOOM_STEP)}
-          aria-label="Acercar"
-          title="Acercar"
+          aria-label={t('graph.zoomIn')}
+          title={t('graph.zoomIn')}
         >
           +
         </button>
@@ -1020,8 +1021,8 @@ export default function GraphView({ recommendations, seeds, connection }) {
           type="button"
           className="graph-zoom-btn"
           onClick={() => zoomBy(1 / ZOOM_STEP)}
-          aria-label="Alejar"
-          title="Alejar"
+          aria-label={t('graph.zoomOut')}
+          title={t('graph.zoomOut')}
         >
           −
         </button>
@@ -1031,8 +1032,12 @@ export default function GraphView({ recommendations, seeds, connection }) {
           type="button"
           className="graph-zoom-btn"
           onClick={toggleFullscreen}
-          aria-label={isFullscreen ? 'Salir de pantalla completa' : 'Agrandar (pantalla completa)'}
-          title={isFullscreen ? 'Salir de pantalla completa' : 'Agrandar (pantalla completa)'}
+          aria-label={
+            isFullscreen ? t('graph.fullscreenExit') : t('graph.fullscreenEnter')
+          }
+          title={
+            isFullscreen ? t('graph.fullscreenExit') : t('graph.fullscreenEnter')
+          }
         >
           {isFullscreen ? '✕' : '⛶'}
         </button>
@@ -1051,45 +1056,52 @@ export default function GraphView({ recommendations, seeds, connection }) {
 
           <dl className="node-facts">
             <div className="node-fact">
-              <dt>Iteración (nivel BFS)</dt>
+              <dt>{t('graph.fact.iteration')}</dt>
               <dd>{selected.depth !== undefined ? selected.depth : '—'}</dd>
             </div>
             <div className="node-fact">
-              <dt>Rama / semilla raíz</dt>
-              <dd>{selected.branch || 'centro del grafo'}</dd>
+              <dt>{t('graph.fact.branch')}</dt>
+              <dd>{selected.branch || t('graph.fact.center')}</dd>
             </div>
             <div className="node-fact">
-              <dt>Vecinos directos (grado)</dt>
+              <dt>{t('graph.fact.degree')}</dt>
               <dd>{selectedFacts.degree}</dd>
             </div>
             {selectedFacts.isExploration && (
               <>
                 <div className="node-fact">
-                  <dt>Descubrió (descendientes)</dt>
+                  <dt>{t('graph.fact.children')}</dt>
                   <dd>{selectedFacts.children}</dd>
                 </div>
                 <div className="node-fact">
-                  <dt>Almacén del BFS</dt>
-                  <dd>{selectedFacts.frontier ? 'Frontera' : 'Nodo interior'}</dd>
+                  <dt>{t('graph.fact.bfsStore')}</dt>
+                  <dd>
+                    {selectedFacts.frontier
+                      ? t('graph.fact.frontier')
+                      : t('graph.fact.interior')}
+                  </dd>
                 </div>
                 {selectedFacts.discoverIndex !== null && (
                   <div className="node-fact">
-                    <dt>N.º de descubrimiento</dt>
+                    <dt>{t('graph.fact.discoverIndex')}</dt>
                     <dd>
-                      #{selectedFacts.discoverIndex} de {selectedFacts.totalVisited}
+                      {t('graph.fact.discovered', {
+                        index: selectedFacts.discoverIndex,
+                        total: selectedFacts.totalVisited,
+                      })}
                     </dd>
                   </div>
                 )}
               </>
             )}
             <div className="node-fact">
-              <dt>Identificador</dt>
+              <dt>{t('graph.fact.id')}</dt>
               <dd>
                 <code>{selected.id}</code>
               </dd>
             </div>
             <div className="node-fact">
-              <dt>Color (hex)</dt>
+              <dt>{t('graph.fact.color')}</dt>
               <dd>
                 <code>{selectedFacts.hex}</code>
               </dd>
@@ -1099,9 +1111,9 @@ export default function GraphView({ recommendations, seeds, connection }) {
           {selected.kind === 'recommendation' && (
             <>
               <p>
-                Posible gusto: <strong>{selected.score}%</strong>
+                {t('graph.posibleTaste')} <strong>{selected.score}%</strong>
               </p>
-              <p>Conecta con:</p>
+              <p>{t('result.connects')}</p>
               <ul>
                 {selected.matchedSeeds.map(
                   (m) =>
@@ -1115,7 +1127,7 @@ export default function GraphView({ recommendations, seeds, connection }) {
             </>
           )}
           <button type="button" onClick={() => setSelected(null)}>
-            Cerrar
+            {t('graph.close')}
           </button>
         </aside>
       )}
