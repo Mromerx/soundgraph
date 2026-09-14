@@ -418,6 +418,10 @@ export default function GraphView({ recommendations, seeds, connection }) {
   const paused = activeConnection?.status === 'paused';
 
   const ZOOM_STEP = 1.25;
+  // Vista por defecto "alejada": margen alrededor del grafo y zoom máximo de
+  // encuadre limitado (no se pega a la pantalla con pocos nodos).
+  const FIT_PADDING_RATIO = 0.22;
+  const FIT_MAX_ZOOM = 1.5;
 
   const graph = useMemo(
     () =>
@@ -564,6 +568,29 @@ export default function GraphView({ recommendations, seeds, connection }) {
 
   const fitKeyRef = useRef(null);
 
+  // El ajuste por defecto deja el grafo "alejado": bastante margen alrededor
+  // (FIT_PADDING_RATIO) y nunca se acerca más de FIT_MAX_ZOOM, aunque al
+  // inicio hayan pocos nodos (si no, la lupa se pega a un par de esferas).
+  function fitGraph(transitionMs = 400) {
+    const fg = graphRef.current;
+    if (!fg || !graph.nodes.length) return;
+    const bbox = fg.getGraphBbox();
+    if (!bbox) return;
+    const center = {
+      x: (bbox.x[0] + bbox.x[1]) / 2,
+      y: (bbox.y[0] + bbox.y[1]) / 2,
+    };
+    const spanX = Math.max(1e-9, bbox.x[1] - bbox.x[0]);
+    const spanY = Math.max(1e-9, bbox.y[1] - bbox.y[0]);
+    const pad = Math.min(size.width, size.height) * FIT_PADDING_RATIO;
+    const zoom = Math.max(
+      1e-12,
+      Math.min((size.width - pad * 2) / spanX, (size.height - pad * 2) / spanY, FIT_MAX_ZOOM)
+    );
+    fg.centerAt(center.x, center.y, transitionMs);
+    fg.zoom(zoom, transitionMs);
+  }
+
   useEffect(() => {
     const fg = graphRef.current;
     if (!fg || !graph.nodes.length) return;
@@ -573,8 +600,19 @@ export default function GraphView({ recommendations, seeds, connection }) {
     fitKeyRef.current = fitKey;
     // Ajusta la vista una vez por búsqueda (o por cambio de tamaño); las
     // actualizaciones del grafo en vivo NO reinician el zoom del usuario.
-    fg.zoomToFit(400, 80);
+    fitGraph();
   }, [graph, size, activeConnection, seeds, showFull]);
+
+  const wasDiscoveringRef = useRef(null);
+
+  // Al terminar la búsqueda el grafo ya está completo: reencuadra la vista
+  // por defecto con margen, en vez de quedarse pegado al par de nodos con que
+  // arrancó la exploración.
+  useEffect(() => {
+    const was = wasDiscoveringRef.current;
+    wasDiscoveringRef.current = discovering;
+    if (was && !discovering) fitGraph(500);
+  }, [discovering]);
 
   useEffect(() => {
     if (!graphRef.current) return;
@@ -603,7 +641,7 @@ export default function GraphView({ recommendations, seeds, connection }) {
     // La carga (repulsión eléctrica) también provoca el "rebote" constante al
     // recalentizar; una vez terminada la búsqueda se baja a lo mínimo para que
     // los nodos se queden en su lugar y solo fluyan.
-    fg.d3Force('charge')?.strength(discovering ? -12 : -3);
+    fg.d3Force('charge')?.strength(-50);
     fg.d3Force('link')?.distance(26);
   }, [discovering]);
 
