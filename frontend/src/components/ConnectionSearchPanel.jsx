@@ -214,72 +214,6 @@ export default function ConnectionSearchPanel({ seedArtists, onStart, onStatus }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canSearch]);
 
-  if (error) {
-    return (
-      <section className="connection-panel">
-        <p className="error">{error}</p>
-      </section>
-    );
-  }
-
-  if (!canSearch) return null;
-
-  if (status && status.status === 'found') {
-    return (
-      <section className="connection-panel">
-        <h2>Conexión encontrada</h2>
-        <p>
-          Artista puente: <strong className="bridge-artist">{status.bridge_artist}</strong>
-        </p>
-        <div className="connection-paths">
-          {Object.entries(status.path || {}).map(([seed, chain]) => (
-            <ol key={seed} className="connection-path">
-              {chain.map((step, i) => (
-                <Fragment key={`${seed}-${i}`}>
-                  <li>
-                    {step === status.bridge_artist && step === seed ? (
-                      <strong>{step}</strong>
-                    ) : (
-                      step
-                    )}
-                  </li>
-                  {i < chain.length - 1 && (
-                    <li className="path-arrow" aria-hidden="true">
-                      →
-                    </li>
-                  )}
-                </Fragment>
-              ))}
-            </ol>
-          ))}
-        </div>
-      </section>
-    );
-  }
-
-  if (status && status.status === 'exhausted') {
-    const hitNodeLimit = status.stopped_reason === 'node_limit';
-    return (
-      <section className="connection-panel">
-        <h2>Búsqueda agotada</h2>
-        <p>
-          {hitNodeLimit
-            ? `Se exploraron ${status.total_discovered ?? 0} artistas sin encontrar una conexión dentro del límite de seguridad. Prueba con artistas más cercanos entre sí.`
-            : 'No se encontró una conexión directa entre estos artistas dentro del límite de búsqueda'}
-        </p>
-      </section>
-    );
-  }
-
-  if (status && status.status === 'failed') {
-    return (
-      <section className="connection-panel">
-        <h2>Error en la búsqueda</h2>
-        <p className="error">{status.error_message || 'Error desconocido'}</p>
-      </section>
-    );
-  }
-
   const running = starting || (status && !isFinal(status));
 
   const live =
@@ -288,53 +222,110 @@ export default function ConnectionSearchPanel({ seedArtists, onStart, onStatus }
       status.status === 'running' ||
       status.status === 'paused');
 
+  const hitNodeLimit = status?.status === 'exhausted' && status.stopped_reason === 'node_limit';
+  const hasPreviousSearch = !!status && (isFinal(status) || status.status === 'stopped');
+
   return (
-    <section className="connection-panel">
-      <button
-        type="button"
-        className="connection-button"
-        onClick={handleSearch}
-        disabled={running}
-      >
-        {starting
-          ? 'Iniciando búsqueda…'
-          : status && status.status === 'stopped'
-            ? 'Buscar otra conexión entre estos artistas'
-            : 'Buscar conexión entre estos artistas'}
-      </button>
+    <Fragment>
+      <section className="connection-panel">
+        <h2>Búsqueda de conexión por grafo de artistas</h2>
+        <p className="section-desc">Localiza mediante BFS multiorigen el artista puente que une a todas las semillas.</p>
 
-      {status && status.status === 'stopped' && (
-        <p className="connection-progress">Búsqueda detenida por el usuario.</p>
-      )}
+        <button
+          type="button"
+          className="connection-button"
+          onClick={handleSearch}
+          disabled={!canSearch || running}
+        >
+          {starting
+            ? 'Iniciando búsqueda…'
+            : running
+              ? 'Buscando conexión…'
+              : hasPreviousSearch
+                ? 'Buscar otra conexión'
+                : 'Buscar conexión'}
+        </button>
 
-      {live && (
-        <p className="connection-progress">
-          {status.status === 'paused'
-            ? 'Búsqueda pausada. Reanudala o detenela cuando quieras.'
-            : `Explorando nivel ${status.current_depth ?? 0} de ${status.max_depth ?? 0}${status.total_discovered ? ` · ${status.total_discovered} artistas` : ''}...`}
-        </p>
-      )}
+        {error && <p className="error">{error}</p>}
 
-      {live && (
-        <div className="connection-controls">
-          <button
-            type="button"
-            className="connection-control"
-            onClick={() => sendControl(status.status === 'paused' ? 'resume' : 'pause')}
-            disabled={controlling}
-          >
-            {status.status === 'paused' ? 'Reanudar' : 'Pausar'}
-          </button>
-          <button
-            type="button"
-            className="connection-control connection-control-stop"
-            onClick={() => sendControl('stop')}
-            disabled={controlling}
-          >
-            Detener
-          </button>
-        </div>
+        {status && status.status === 'exhausted' && (
+          <>
+            <h2>Búsqueda agotada</h2>
+            <p>
+              {hitNodeLimit
+                ? `Se exploraron ${status.total_discovered ?? 0} artistas sin encontrar una conexión dentro del límite de seguridad. Prueba con artistas más cercanos entre sí.`
+                : 'No se encontró una conexión directa entre estos artistas dentro del límite de búsqueda'}
+            </p>
+          </>
+        )}
+
+        {status && status.status === 'failed' && (
+          <>
+            <h2>Error en la búsqueda</h2>
+            <p className="error">{status.error_message || 'Error desconocido'}</p>
+          </>
+        )}
+
+        {status && status.status === 'stopped' && (
+          <p className="connection-progress">Búsqueda detenida por el usuario.</p>
+        )}
+
+        {live && (
+          <p className="connection-progress">
+            {status.status === 'paused'
+              ? 'Búsqueda pausada. Reanudala o detenela cuando quieras.'
+              : `Explorando nivel ${status.current_depth ?? 0} de ${status.max_depth ?? 0}${status.total_discovered ? ` · ${status.total_discovered} artistas` : ''}...`}
+          </p>
+        )}
+
+        {live && (
+          <div className="connection-controls">
+            <button
+              type="button"
+              className="connection-control"
+              onClick={() => sendControl(status.status === 'paused' ? 'resume' : 'pause')}
+              disabled={controlling}
+            >
+              {status.status === 'paused' ? 'Reanudar' : 'Pausar'}
+            </button>
+            <button
+              type="button"
+              className="connection-control connection-control-stop"
+              onClick={() => sendControl('stop')}
+              disabled={controlling}
+            >
+              Detener
+            </button>
+          </div>
+        )}
+      </section>
+
+      {status && status.status === 'found' && (
+        <section className="results">
+          <h2>Conexión encontrada</h2>
+          <p className="section-desc">
+            Artista puente: {status.bridge_artist}
+          </p>
+          <div className="connection-paths">
+            {Object.entries(status.path || {}).map(([seed, chain]) => (
+              <div key={seed} className="connection-path">
+                {chain.map((step, i) => (
+                  <Fragment key={`${seed}-${i}`}>
+                    <span className="path-step">
+                      {step}
+                    </span>
+                    {i < chain.length - 1 && (
+                      <span className="path-arrow" aria-hidden="true">
+                        →
+                      </span>
+                    )}
+                  </Fragment>
+                ))}
+              </div>
+            ))}
+          </div>
+        </section>
       )}
-    </section>
+    </Fragment>
   );
 }

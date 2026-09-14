@@ -31,7 +31,7 @@ body {
 
 .app-header h1 {
   margin: 0;
-  font-size: var(--font-size-xl);
+  font-size: 2rem;
   color: var(--color-accent);
 }
 
@@ -41,15 +41,30 @@ body {
 }
 
 .controls {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.seed-box,
+.recommend-controls {
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: 10px;
-  padding: 20px;
+  padding: 16px 20px;
 }
 
-.controls h2 {
-  margin-top: 0;
+.seed-box h2,
+.recommend-controls h2,
+.results h2 {
+  margin: 0 0 6px;
   font-size: var(--font-size-xl);
+}
+
+.section-desc {
+  margin: 0 0 16px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
 }
 
 .seed-row {
@@ -468,12 +483,13 @@ button.remove {
 }
 
 .connection-panel h2 {
-  margin: 0 0 8px;
+  margin: 0 0 6px;
   font-size: var(--font-size-xl);
 }
 
 .connection-panel .connection-button {
   width: 100%;
+  padding: 12px;
   font-weight: 600;
   background: var(--color-accent);
   color: var(--color-black);
@@ -487,10 +503,6 @@ button.remove {
 .connection-panel .connection-progress {
   margin: 12px 0 0;
   color: var(--color-text-secondary);
-}
-
-.connection-panel .bridge-artist {
-  color: var(--color-accent);
 }
 
 .connection-controls {
@@ -521,6 +533,8 @@ button.remove {
 }
 
 .connection-paths {
+  display: grid;
+  gap: 10px;
   margin-top: 12px;
 }
 
@@ -529,28 +543,23 @@ button.remove {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin: 6px 0;
-  padding: 0;
-  list-style: none;
+  padding: 12px 14px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
 }
 
-.connection-path li {
-  display: flex;
-  align-items: center;
+.path-step {
+  display: inline-block;
   padding: 4px 10px;
   background: var(--color-surface-2);
   border-radius: 999px;
   font-size: var(--font-size-sm);
 }
 
-.connection-path li.path-arrow {
-  padding: 0;
-  background: transparent;
-  border-radius: 0;
-}
-
-.connection-path .path-arrow {
+.path-arrow {
   color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
 }
 
 .recommendations {

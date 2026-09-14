@@ -5,9 +5,9 @@ import { getConnectionStatus } from '../api/connections.js';
 const REC_COLOR = '#ffffff';
 const BRIDGE_COLOR = '#4ade80';
 const BRANCH_COLORS = [
+  '#d55e00',
   '#0072b2',
   '#e69f00',
-  '#009e73',
   '#cc79a7',
   '#f0e442',
 ];

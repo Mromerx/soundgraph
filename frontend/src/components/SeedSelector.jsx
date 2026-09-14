@@ -46,8 +46,9 @@ export default function SeedSelector({ seeds, onChange }) {
   }
 
   return (
-    <section>
-      <h2>Álbumes semilla</h2>
+    <section className="seed-box">
+      <h2>Semillas</h2>
+      <p className="section-desc">Define los artistas y/o álbumes de referencia que alimentan el análisis.</p>
       {seeds.map((seed, index) => (
         <div key={seed.key} className="seed-row">
           <span className="seed-index">{index + 1}.</span>

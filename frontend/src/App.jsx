@@ -52,17 +52,31 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <h1>SoundGraph</h1>
-        <p>Descubre álbumes por similitud coseno y conexión por grafo de artistas.</p>
+        <p>Descubre álbumes afines y encuentra el puente entre tus artistas.</p>
       </header>
 
       <main className="app-main">
         <form className="controls" onSubmit={handleSubmit}>
           <SeedSelector seeds={seeds} onChange={setSeeds} />
-          <ResultCountSelector nResults={nResults} onChange={setNResults} />
-          <button type="submit" className="submit" disabled={loading}>
-            {loading ? 'Recomendando…' : 'Recomendar'}
-          </button>
+          <section className="recommend-controls">
+            <h2>Búsqueda por similitud coseno</h2>
+            <p className="section-desc">Encuentra álbumes afines a tus semillas mediante la similitud coseno TF-IDF.</p>
+            <ResultCountSelector nResults={nResults} onChange={setNResults} />
+            <button type="submit" className="submit" disabled={loading}>
+              {loading ? 'Recomendando…' : 'Recomendar'}
+            </button>
+          </section>
         </form>
+
+        {error && <p className="error">{error}</p>}
+
+        {results !== null && !loading && (
+          <section className="results">
+            <h2>Recomendaciones</h2>
+            <p className="section-desc">Candidatos ordenados por su puntaje de similitud coseno TF-IDF.</p>
+            <RecommendationsList recommendations={results} />
+          </section>
+        )}
 
         <ConnectionSearchPanel
           seedArtists={seedArtists}
@@ -70,18 +84,10 @@ export default function App() {
           onStatus={setConnection}
         />
 
-        {error && <p className="error">{error}</p>}
-
-        {results !== null && !loading && (
-          <section className="results">
-            <h2>Recomendaciones</h2>
-            <RecommendationsList recommendations={results} />
-          </section>
-        )}
-
         {connection !== null && (
           <section className="results">
             <h2>Grafo de la conexión</h2>
+            <p className="section-desc">Visualiza la expansión del grafo de afinidad hasta encontrar el artista puente.</p>
             <GraphView connection={connection} />
           </section>
         )}
