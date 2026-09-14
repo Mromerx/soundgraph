@@ -9,6 +9,9 @@ It also detects **atypical albums**: each album of an artist is ranked by its co
 
 Tag data comes exclusively from the Last.fm API.
 
+<img width="1259" height="813" alt="image" src="https://github.com/user-attachments/assets/9a78103c-3523-495e-aebe-6a3393c6445d" />
+
+
 ## Stack
 
 - **Backend:** Django + Django REST Framework, PostgreSQL, scikit-learn (TF-IDF / cosine similarity)
