@@ -9,6 +9,9 @@ También detecta **álbumes atípicos**: cada álbum de un artista se ordena seg
 
 Los tags provienen exclusivamente de la API de Last.fm.
 
+<img width="1276" height="827" alt="image" src="https://github.com/user-attachments/assets/03d11555-d745-429a-a83e-d809ea470aad" />
+
+
 ## Stack
 
 - **Backend:** Django + Django REST Framework, PostgreSQL, scikit-learn (TF-IDF / similitud coseno)
