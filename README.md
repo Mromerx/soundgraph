@@ -106,9 +106,9 @@ The Vite dev server proxies `/api` to the Django server at `http://localhost:800
 The frontend reads `VITE_LANG` from the root `.env` (Vite loads it through `envDir` in `frontend/vite.config.js`):
 
 - `VITE_LANG=es` → interface in Spanish
-- `VITE_LANG=en` → interface in English
+- `VITE_LANG=en` → interface in English (default)
 
-Anything else falls back to Spanish. Pick one language for the whole UI; mixing isn't supported.
+Anything else falls back to English. Pick one language for the whole UI; mixing isn't supported.
 
 ## Configuration
 
@@ -121,7 +121,7 @@ All settings live in `.env` (see `.env.example`):
 | `DJANGO_ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated allowed hosts. |
 | `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` | `soundgraph`, `5432` | PostgreSQL connection settings. |
 | `LASTFM_API_KEY` | — | **Required.** Last.fm API key. |
-| `VITE_LANG` | `es` | Language of the frontend UI: `es` (Spanish) or `en` (English). Read by Vite from the root `.env`. |
+| `VITE_LANG` | `en` | Language of the frontend UI: `es` (Spanish) or `en` (English). Read by Vite from the root `.env`. |
 | `SOUNDGRAPH_NODE_LIMIT` | `50000` | Max distinct artists the bridge BFS may discover in total. The frontier grows ~10x per level; this caps memory/CPU. When reached the search ends as `exhausted` (`stopped_reason="node_limit"`). |
 | `SOUNDGRAPH_MAX_CONCURRENT_SEARCHES` | `1` | Max bridge searches running in parallel (each BFS keeps its whole state in RAM). `0` disables the limit. |
 | `SOUNDGRAPH_MEMORY_LIMIT_MB` | `4096` | Hard RAM cap for the whole process via `resource.setrlimit` (POSIX). If exceeded, the search fails cleanly with `status="failed"` instead of taking the server down. `0` disables it. |

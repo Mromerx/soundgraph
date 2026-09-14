@@ -1,5 +1,5 @@
 const SUPPORTED = ['es', 'en'];
-const DEFAULT_LANG = 'es';
+const DEFAULT_LANG = 'en';
 
 const requested = String(import.meta.env.VITE_LANG || '').toLowerCase();
 export const lang = SUPPORTED.includes(requested) ? requested : DEFAULT_LANG;
@@ -213,7 +213,7 @@ const backendErrorPrefixes = [
 export function translateError(message) {
   if (typeof message !== 'string' || !message) return message;
   const trimmed = message.trim();
-  if (lang === DEFAULT_LANG) return trimmed;
+  if (lang === 'es') return trimmed;
   if (backendErrorMap[trimmed]) return backendErrorMap[trimmed];
   for (const [prefix, replacement] of backendErrorPrefixes) {
     if (trimmed.startsWith(prefix)) return replacement + trimmed.slice(prefix.length);
