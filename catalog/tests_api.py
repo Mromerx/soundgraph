@@ -114,7 +114,11 @@ class RecommendationsViewTests(TestCase):
             {"artist": "Spiritbox", "album": "Eternal Blue", "score": 74}
         ])
         mock_similar.assert_called_once_with("Spiritbox", limit=6)
-        mock_top.assert_called_once_with("Architects", limit=2)
+        # Pool de candidatos: top álbumes del artista similar Y los de la
+        # propia semilla (para "si te gustó esto, probá lo demás del artista").
+        mock_top.assert_any_call("Architects", limit=2)
+        mock_top.assert_any_call("Spiritbox", limit=2)
+        self.assertEqual(mock_top.call_count, 2)
         mock_get_album.assert_any_call("Architects", "For Those That Wish to Exist")
         mock_get_album.assert_any_call("Spiritbox", "Eternal Blue")
 

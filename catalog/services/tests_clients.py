@@ -343,7 +343,9 @@ class GetOrFetchAlbumCacheTests(TestCase):
         self.assertEqual(album.tags, [{"name": "melancholic", "count": 45}])
         self.assertEqual(album.listeners, 1000)
         self.assertEqual(album.playcount, 5000)
-        self.assertEqual(album.tag_document, "melancholic")
+        # El documento se arma con el builder canónico (count 45 -> 45//20=2
+        # repeticiones), el mismo que usa el motor de similitud.
+        self.assertEqual(album.tag_document, "melancholic melancholic")
 
     @mock.patch("catalog.services.lastfm_client.get_album_full_info")
     def test_second_call_uses_cache_without_api(self, mock_info):

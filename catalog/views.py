@@ -134,7 +134,11 @@ class RecommendationsView(APIView):
 
         Por cada semilla consulta artistas similares cacheados
         (``cached_similar_artists``, limit 6) y, por cada artista similar, sus
-        top álbumes cacheados (``cached_top_albums``, limit 2).
+        top álbumes cacheados (``cached_top_albums``, limit 2). Además agrega
+        los top álbumes de la propia semilla (limit 2, excluyendo la semilla
+        en sí) para que "si te gustó este álbum de X" también alcancen otros
+        discos del mismo artista. Los candidatos se deduplican por
+        ``(artista, título)``.
         """
         jobs = []
         seen = set()
@@ -161,6 +165,20 @@ class RecommendationsView(APIView):
                         continue
                     seen.add(key)
                     jobs.append(key)
+
+            try:
+                own_albums = cache.cached_top_albums(
+                    seed["artist"], limit=albums_per_artist
+                )
+            except LastFMError:
+                continue
+
+            for album in own_albums:
+                key = (album["artist"], album["title"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                jobs.append(key)
 
         return jobs
 

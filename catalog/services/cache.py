@@ -13,17 +13,9 @@ from django.utils import timezone
 from catalog.models import Album, Artist
 
 from . import lastfm_client
+from .similarity import build_tag_document
 
 logger = logging.getLogger(__name__)
-
-
-def _build_tag_document(tags):
-    """Arma el documento de texto plano que alimenta el vector TF-IDF.
-
-    Une en un único string en minúsculas los nombres de los tags de Last.fm.
-    """
-    parts = [tag["name"] for tag in tags if tag.get("name")]
-    return " ".join(parts).lower()
 
 
 def cached_similar_artists(artist_name, limit=6, ttl_days=30):
@@ -74,8 +66,10 @@ def get_or_fetch_album(artist_name, album_title, ttl_days=60):
     2. Si existe y ``cached_at`` es más reciente que ``ttl_days`` atrás, lo
        devuelve tal cual (sin tocar las APIs).
     3. Si no existe o expiró, llama a Last.fm (tags, listeners/playcount vía
-       ``album.getinfo``), arma el ``tag_document`` y hace ``update_or_create``
-       (creando el ``Artist`` con ``get_or_create`` si falta).
+       ``album.getinfo``), arma el ``tag_document`` con el builder canónico de
+       ``similarity.build_tag_document`` (el mismo que usa el motor de similitud)
+       y hace ``update_or_create`` (creando el ``Artist`` con ``get_or_create``
+       si falta).
     4. Devuelve el ``Album`` actualizado.
 
     Args:
@@ -112,7 +106,7 @@ def get_or_fetch_album(artist_name, album_title, ttl_days=60):
             "tags": tags,
             "listeners": info.get("listeners", 0),
             "playcount": info.get("playcount", 0),
-            "tag_document": _build_tag_document(tags),
+            "tag_document": build_tag_document(tags),
         },
     )
     logger.info("Fetched and cached album %s - %s", artist_name, album_title)
